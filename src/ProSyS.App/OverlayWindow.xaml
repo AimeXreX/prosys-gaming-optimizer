@@ -1,0 +1,11 @@
+<Window x:Class="ProSyS.App.OverlayWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="330" Height="74" WindowStyle="None" AllowsTransparency="True" Background="Transparent" Topmost="True" ShowInTaskbar="False"
+        ResizeMode="NoResize" IsHitTestVisible="False" FontFamily="./Assets/Fonts/#Vazirmatn">
+  <Border Background="#E6111118" BorderBrush="#8B5CF6" BorderThickness="1" CornerRadius="12" Padding="14,9">
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+      <StackPanel><TextBlock Text="CPU" Foreground="#9B96AA" FontSize="10"/><TextBlock x:Name="CpuText" Text="—" Foreground="White" FontWeight="Bold" FontSize="16"/></StackPanel>
+      <StackPanel Grid.Column="1"><TextBlock Text="RAM" Foreground="#9B96AA" FontSize="10"/><TextBlock x:Name="RamText" Text="—" Foreground="#38D9B6" FontWeight="Bold" FontSize="16"/></StackPanel>
+      <StackPanel Grid.Column="2"><TextBlock Text="NET" Foreground="#9B96AA" FontSize="10"/><TextBlock x:Name="NetworkText" Text="—" Foreground="#A78BFA" FontWeight="Bold" FontSize="16"/></StackPanel>
+    </Grid>
+  </Border>
+</Window>

@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="..\ProSyS.Core\ProSyS.Core.csproj" /></ItemGroup>
+  <ItemGroup><PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" /></ItemGroup>
+</Project>

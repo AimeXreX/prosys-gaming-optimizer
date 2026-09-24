@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProSyS.Core\ProSyS.Core.csproj" />
+    <ProjectReference Include="..\ProSyS.Windows\ProSyS.Windows.csproj" />
+  </ItemGroup>
+</Project>

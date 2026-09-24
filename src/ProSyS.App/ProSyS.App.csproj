@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><UseWPF>true</UseWPF></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProSyS.Core\ProSyS.Core.csproj" />
+    <ProjectReference Include="..\ProSyS.Windows\ProSyS.Windows.csproj" />
+    <ProjectReference Include="..\ProSyS.PrivilegedHelper\ProSyS.PrivilegedHelper.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\Fonts\Vazirmatn-Regular.ttf" />
+    <Resource Include="Assets\Fonts\Vazirmatn-SemiBold.ttf" />
+    <Resource Include="Assets\Fonts\Vazirmatn-Bold.ttf" />
+    <Content Include="Assets\Fonts\OFL.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\tools\PresentMon\2.6.0\PresentMon.exe" Link="Tools\PresentMon\PresentMon.exe"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+    <Content Include="..\..\tools\PresentMon\manifest.json" Link="Tools\PresentMon\manifest.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+    <Content Include="..\..\tools\PresentMon\LICENSE.txt" Link="Tools\PresentMon\LICENSE.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+  </ItemGroup>
+  <Target Name="CopyPrivilegedHelper" AfterTargets="Build">
+    <ItemGroup><PrivilegedHelperFiles Include="..\ProSyS.PrivilegedHelper\bin\$(Configuration)\net8.0-windows10.0.22621.0\ProSyS.PrivilegedHelper.*" /></ItemGroup>
+    <Copy SourceFiles="@(PrivilegedHelperFiles)" DestinationFolder="$(OutDir)Tools\PrivilegedHelper" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="BuildPrivilegedHelperForPublish" BeforeTargets="Publish">
+    <MSBuild Projects="..\ProSyS.PrivilegedHelper\ProSyS.PrivilegedHelper.csproj" Targets="Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained)" />
+  </Target>
+</Project>
