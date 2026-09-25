@@ -25,10 +25,10 @@ ProSyS is a local-first Windows 11 gaming diagnostic and optimization applicatio
 Requirements: Windows 11 and .NET 8 SDK.
 
 ```powershell
-.\.tools\dotnet\dotnet.exe build ProSyS.sln -c Release
-.\.tools\dotnet\dotnet.exe run --project src/ProSyS.App -c Release
-.\.tools\dotnet\dotnet.exe run --project src/ProSyS.Cli -c Release -- audit --json
-.\.tools\dotnet\dotnet.exe run --project tests/ProSyS.Tests -c Release
+dotnet build ProSyS.sln -c Release
+dotnet run --project src/ProSyS.App -c Release
+dotnet run --project src/ProSyS.Cli -c Release -- audit --json
+dotnet run --project tests/ProSyS.Tests -c Release
 ```
 
 Data is stored under `%LOCALAPPDATA%\ProSySOptimizer`. Run `plan` before `optimize --profile safe --confirm`. See [RECOVERY.md](RECOVERY.md) before applying changes.
