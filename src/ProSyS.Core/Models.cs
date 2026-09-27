@@ -6,8 +6,12 @@ public enum RiskLevel { None = 0, VeryLow = 1, Low = 2, Moderate = 3, High = 4, 
 public enum BenefitLevel { None, Negligible, Low, Moderate, PotentiallyHigh, Unknown }
 public enum EvidenceType { OfficialDocumentation, VendorDocumentation, MeasuredOnThisMachine, ControlledBenchmark, GenerallySupportedBehavior, HardwareDependent, Experimental, Legacy, Unknown }
 public enum Confidence { Verified, High, Medium, Experimental, Unknown }
-/// <summary>Compliant means the recommended state is already in place; Enabled means a change is still available.</summary>
-public enum DetectionStatus { Enabled, Compliant, Unsupported, Unavailable, Unknown, DetectionFailed, PermissionRequired }
+/// <summary>
+/// NonCompliant: a change is available. Compliant: the recommended state is already in place.
+/// Present/Absent: raw read-back after rollback (the value exists / does not exist).
+/// Numeric values of existing members are unchanged so older journals still deserialize.
+/// </summary>
+public enum DetectionStatus { NonCompliant = 0, Compliant = 1, Unsupported = 2, Unavailable = 3, Unknown = 4, DetectionFailed = 5, PermissionRequired = 6, Present = 7, Absent = 8 }
 public enum CompatibilityStatus { Compatible, Unsupported, PermissionRequired, Unknown }
 public enum Reversibility { Easy, Moderate, Difficult }
 public enum OperationState { Created, Analyzed, Planned, BackedUp, Applying, Verifying, Completed, PartiallyFailed, RollbackPending, RollingBack, RolledBack, RecoveryRequired }
@@ -32,7 +36,7 @@ public sealed record TweakMetadata(
     bool RequiresRestart, bool RequiresSignOut, bool RequiresAdministrator,
     bool AffectsSecurity, bool AffectsAntiCheat, string[] SupportedBuilds,
     string[] Requires, string[] ConflictsWith, string[] MustRunAfter,
-    string RollbackMethod, string LastReviewed, bool RecommendedByDefault = true);
+    string RollbackMethod, string LastReviewed, bool RecommendedByDefault = true, string? Reference = null);
 
 public sealed record MachineSnapshot(
     string Id, DateTimeOffset CapturedAt, string MachineNameHash, string WindowsEdition,
@@ -67,17 +71,26 @@ public sealed record OptimizationPlan(
     Guid PlanId, DateTimeOffset CreatedAt, string MachineSnapshotId,
     ReadOnlyCollection<PlannedTweak> Tweaks, string Sha256);
 
-public sealed record TweakBackup(string TweakId, bool ValueExisted, object? OriginalValue, string ValueKind, DateTimeOffset CapturedAt);
+/// <param name="MissingKeyPath">The highest key of the value's path that did not exist before apply; rollback removes it again if still empty.</param>
+public sealed record TweakBackup(string TweakId, bool ValueExisted, object? OriginalValue, string ValueKind, DateTimeOffset CapturedAt, string? MissingKeyPath = null);
 public sealed record TweakExecutionResult(string TweakId, bool Success, string Message, DetectionResult? Verification);
 public sealed record SessionSummary(Guid SessionId, OperationState State, string BackupDirectory, IReadOnlyList<TweakExecutionResult> Results);
 
 public enum BenchmarkComparability { High, Medium, Low, Invalid }
-public sealed record BenchmarkFingerprint(string GameProcess, string WindowsBuild, string GpuDriver, string PowerPlan, string SnapshotId);
+public sealed record BenchmarkFingerprint(string GameProcess, string WindowsBuild, string GpuDriver, string PowerPlan, string SnapshotId, int DurationSeconds = 0);
 public sealed record BenchmarkSummary(Guid RunId, DateTimeOffset CapturedAt, string Source, string GameProcess, int FrameCount,
     double AverageFps, double OnePercentLowFps, double PointOnePercentLowFps, double MedianFrameTimeMs,
-    double P99FrameTimeMs, double StandardDeviationMs, BenchmarkFingerprint Fingerprint, string CsvPath);
+    double P99FrameTimeMs, double StandardDeviationMs, BenchmarkFingerprint Fingerprint, string CsvPath, bool IsBaseline = false);
 public sealed record BenchmarkComparison(BenchmarkComparability Comparability, string Reason, double AverageFpsDeltaPercent,
     double OnePercentLowDeltaPercent, double P99FrameTimeDeltaPercent, bool MeaningfulImprovement);
+
+public enum BenchmarkVerdict { InsufficientRuns, NotComparable, NoSignificantChange, Improvement, Regression }
+
+/// <summary>Difference of means (after − before) with a Welch 95% confidence interval, all in percent of the baseline mean.</summary>
+public sealed record MetricChange(double BeforeMean, double AfterMean, double DeltaPercent, double CiLowPercent, double CiHighPercent, BenchmarkVerdict Verdict);
+
+public sealed record BenchmarkSetComparison(BenchmarkComparability Comparability, string Reason, int BeforeRuns, int AfterRuns,
+    MetricChange? AverageFps, MetricChange? OnePercentLowFps, BenchmarkVerdict Verdict);
 
 public enum OptimizationProfileKind { Safe, Balanced, Competitive, Experimental }
 public sealed record GameProfile(Guid Id, string Name, string GameProcess, string? ExecutablePath, OptimizationProfileKind Profile,

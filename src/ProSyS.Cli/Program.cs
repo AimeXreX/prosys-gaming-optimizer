@@ -74,7 +74,7 @@ try
             var engine = new OptimizationEngine(root, log);
             var latest = engine.FindLatestRestorableSession();
             if (latest is null) { Console.Error.WriteLine("No session with a captured backup exists."); Environment.ExitCode = 2; break; }
-            var summary = await engine.RollbackAsync(latest, tweaks);
+            var summary = await engine.RollbackAsync(latest, TweakCatalog.CreateRollbackCatalog());
             Print(summary);
             Environment.ExitCode = summary.State == OperationState.RolledBack ? 0 : 1;
             break;

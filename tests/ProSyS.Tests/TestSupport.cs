@@ -9,13 +9,13 @@ public sealed class WindowsFactAttribute : FactAttribute
     public WindowsFactAttribute() { if (!OperatingSystem.IsWindows()) Skip = "Requires Windows."; }
 }
 
-/// <summary>A fact that needs the PresentMon binary fetched by tools/PresentMon/Get-PresentMon.ps1.</summary>
+/// <summary>A fact that needs the PresentMon binary fetched by tools/PresentMon/fetch.ps1.</summary>
 public sealed class PresentMonFactAttribute : FactAttribute
 {
     public PresentMonFactAttribute()
     {
         if (!OperatingSystem.IsWindows()) Skip = "Requires Windows.";
-        else if (!File.Exists(TestData.PresentMonPath)) Skip = "PresentMon is not downloaded; run tools/PresentMon/Get-PresentMon.ps1.";
+        else if (!File.Exists(TestData.PresentMonPath)) Skip = "PresentMon is not downloaded; run tools/PresentMon/fetch.ps1.";
     }
 }
 
@@ -59,11 +59,11 @@ public sealed class FakeTweak(TweakMetadata metadata) : ITweak
     public TweakMetadata Metadata { get; } = metadata;
     public Task ApplyAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task<TweakBackup> BackupAsync(CancellationToken cancellationToken = default) => Task.FromResult(new TweakBackup(Metadata.Id, false, null, "None", DateTimeOffset.UtcNow));
-    public Task<DetectionResult> DetectAsync(CancellationToken cancellationToken = default) => Task.FromResult(new DetectionResult(DetectionStatus.Enabled, 1, "Fake boundary", Confidence.Verified, DateTimeOffset.UtcNow));
+    public Task<DetectionResult> DetectAsync(CancellationToken cancellationToken = default) => Task.FromResult(new DetectionResult(DetectionStatus.NonCompliant, 1, "Fake boundary", Confidence.Verified, DateTimeOffset.UtcNow));
     public Task<CompatibilityResult> EvaluateCompatibilityAsync(MachineSnapshot machine, CancellationToken cancellationToken = default) => Task.FromResult(new CompatibilityResult(CompatibilityStatus.Compatible, "Test"));
     public Task RollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task<DetectionResult> VerifyAsync(CancellationToken cancellationToken = default) => Task.FromResult(new DetectionResult(DetectionStatus.Compliant, 0, "Fake boundary", Confidence.Verified, DateTimeOffset.UtcNow));
-    public Task<DetectionResult> VerifyRollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default) => Task.FromResult(new DetectionResult(DetectionStatus.Unknown, null, "Fake boundary", Confidence.Verified, DateTimeOffset.UtcNow));
+    public Task<DetectionResult> VerifyRollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default) => Task.FromResult(new DetectionResult(DetectionStatus.Absent, null, "Fake boundary", Confidence.Verified, DateTimeOffset.UtcNow));
 }
 
 /// <summary>An in-memory value with injectable faults; rollback writes the backup back unless <see cref="CorruptRollback"/> is set.</summary>
@@ -78,7 +78,7 @@ public sealed class StatefulTweak(string id) : ITweak
     public TweakMetadata Metadata { get; } = TestData.Metadata(id);
 
     public Task<DetectionResult> DetectAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(new DetectionResult(Same(Value, Recommended) ? DetectionStatus.Compliant : DetectionStatus.Enabled, Value, "test", Confidence.Verified, DateTimeOffset.UtcNow));
+        Task.FromResult(new DetectionResult(Same(Value, Recommended) ? DetectionStatus.Compliant : DetectionStatus.NonCompliant, Value, "test", Confidence.Verified, DateTimeOffset.UtcNow));
     public Task<CompatibilityResult> EvaluateCompatibilityAsync(MachineSnapshot machine, CancellationToken cancellationToken = default) => Task.FromResult(new CompatibilityResult(CompatibilityStatus.Compatible, "test"));
     public Task<TweakBackup> BackupAsync(CancellationToken cancellationToken = default) => Task.FromResult(new TweakBackup(Metadata.Id, true, Value, Kind, DateTimeOffset.UtcNow));
     public Task ApplyAsync(CancellationToken cancellationToken = default)
@@ -95,7 +95,7 @@ public sealed class StatefulTweak(string id) : ITweak
         return Task.CompletedTask;
     }
     public Task<DetectionResult> VerifyRollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default) =>
-        Task.FromResult(new DetectionResult(DetectionStatus.Enabled, Value, "test", Confidence.Verified, DateTimeOffset.UtcNow));
+        Task.FromResult(new DetectionResult(DetectionStatus.Present, Value, "test", Confidence.Verified, DateTimeOffset.UtcNow));
 
     private static object Restore(TweakBackup backup) => backup.OriginalValue is System.Text.Json.JsonElement
         ? ProSyS.Windows.RegistryTweak.ConvertBackupValue(backup)

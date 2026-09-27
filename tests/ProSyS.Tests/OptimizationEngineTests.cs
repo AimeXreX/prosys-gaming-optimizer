@@ -125,6 +125,60 @@ public class OptimizationEngineTests
         Assert.Equal(newer.BackupDirectory, engine.FindLatestRestorableSession());
     }
 
+    [Fact]
+    public async Task ConcurrentMutationsAreRejected()
+    {
+        using var folder = new TempFolder();
+        var tweak = new StatefulTweak("a");
+        var plan = await new PlanFactory().CreateAsync(TestData.Snapshot(), new[] { tweak });
+        using (MutationLock.Acquire(folder.Path))
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => new OptimizationEngine(folder.Path, new NullAudit()).ExecuteAsync(plan, new[] { tweak }));
+            Assert.Contains("Another ProSyS operation", error.Message);
+        }
+        Assert.Equal(1, tweak.Value);
+        Assert.Equal(OperationState.Completed, (await new OptimizationEngine(folder.Path, new NullAudit()).ExecuteAsync(plan, new[] { tweak })).State);
+    }
+
+    [Fact]
+    public async Task ManualRollbackUndoesInReverseApplicationOrder()
+    {
+        using var folder = new TempFolder();
+        var order = new List<string>();
+        var tweaks = new[] { "c", "a", "b" }.Select(id => new OrderedTweak(id, order)).ToArray();
+        var engine = new OptimizationEngine(folder.Path, new NullAudit());
+        var applied = await engine.ExecuteAsync(await new PlanFactory().CreateAsync(TestData.Snapshot(), tweaks), tweaks);
+        var appliedOrder = order.ToList();
+        order.Clear();
+        await engine.RollbackAsync(applied.BackupDirectory, tweaks);
+        Assert.Equal(appliedOrder.AsEnumerable().Reverse(), order);
+    }
+
+    [Fact]
+    public async Task AutomaticRollbackSkipsItemsThatWereNeverApplied()
+    {
+        using var folder = new TempFolder();
+        var failing = new StatefulTweak("a") { FailApply = true };
+        var untouched = new StatefulTweak("b") { CorruptRollback = true }; // would report a failure if it were rolled back
+        var plan = await new PlanFactory().CreateAsync(TestData.Snapshot(), new ITweak[] { failing, untouched });
+        var result = await new OptimizationEngine(folder.Path, new NullAudit()).ExecuteAsync(plan, new ITweak[] { failing, untouched });
+        Assert.Equal(OperationState.RolledBack, result.State);
+        Assert.Equal(1, untouched.Value);
+    }
+
+    private sealed class OrderedTweak(string id, List<string> log) : ITweak
+    {
+        private readonly StatefulTweak _inner = new(id);
+        public TweakMetadata Metadata => _inner.Metadata;
+        public Task<DetectionResult> DetectAsync(CancellationToken ct = default) => _inner.DetectAsync(ct);
+        public Task<CompatibilityResult> EvaluateCompatibilityAsync(MachineSnapshot machine, CancellationToken ct = default) => _inner.EvaluateCompatibilityAsync(machine, ct);
+        public Task<TweakBackup> BackupAsync(CancellationToken ct = default) => _inner.BackupAsync(ct);
+        public Task ApplyAsync(CancellationToken ct = default) { log.Add(id); return _inner.ApplyAsync(ct); }
+        public Task<DetectionResult> VerifyAsync(CancellationToken ct = default) => _inner.VerifyAsync(ct);
+        public Task RollbackAsync(TweakBackup backup, CancellationToken ct = default) { log.Add(id); return _inner.RollbackAsync(backup, ct); }
+        public Task<DetectionResult> VerifyRollbackAsync(TweakBackup backup, CancellationToken ct = default) => _inner.VerifyRollbackAsync(backup, ct);
+    }
+
     private static string? JournalState(string folder)
     {
         using var journal = JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "journal.json")));

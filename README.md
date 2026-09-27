@@ -11,14 +11,14 @@ ProSyS is a local-first Windows 11 gaming diagnostic and optimization applicatio
 - Dry run with no mutation.
 - Exact original-value backup, disk journal, post-apply verification, automatic failure rollback and idempotent manual rollback.
 - Nine-page WPF control center with dashboard, inventory, recommendations, diagnostics, recovery, settings, benchmark, game profiles and an external live overlay.
-- Persian-first RTL and English/LTR interface switching, bundled Vazirmatn typography, local JSON report export and 158 reversible, current-user Windows 11 capabilities across gaming, input, shell, desktop, accessibility, personalization, search and background-content categories. Only a small evidence-backed core is selected by default; preference changes are explicit opt-in choices.
+- Persian-first RTL and English/LTR interface switching, bundled Vazirmatn typography, local JSON report export and a curated catalog of 15 reversible, current-user Windows 11 settings (gaming & capture, input, accessibility shortcuts and preferences), each mapped to a documented Settings page. Only Game Mode is selected by default; everything else is an explicit opt-in.
 - Live CPU sampling and a local gateway latency/jitter probe; no remote telemetry or Internet endpoint is contacted.
 - Local CLI; no account, cloud dependency or telemetry.
 - JSON machine-readable scan/audit output and JSONL audit logs.
-- Intel-signed, SHA-256-pinned PresentMon 2.6.0 capture for average FPS, 1%/0.1% lows, frame-time variance and A/B comparison.
+- SHA-256-pinned PresentMon 2.6.0 capture for average FPS, 1%/0.1% lows and frame-time variance, with multi-run (≥3 per side) before/after comparison using Welch 95% confidence intervals that also reports regressions.
 - Atomic per-game profiles with verified changes, launch integration, automatic exact-state rollback when a game exits, startup detection of interrupted sessions and category filtering for the expanded catalog.
 - Per-process TCP ownership, vendor GPU API capability discovery and a short-lived allowlisted administrator helper for Windows restore points.
-- RSA-PSS signed update-manifest verification and an Inno Setup installer definition with upgrade/repair/uninstall support.
+- RSA-PSS signed update manifests (schema 2: signed expiry of at most 90 days, downgrade rejection) and an Inno Setup installer with upgrade/repair/uninstall support.
 
 ## Download and install (users)
 
@@ -31,7 +31,7 @@ Download `ProSyS-Gaming-Optimizer-<version>-Setup.exe` from the [latest release]
 Requirements: Windows 11 and .NET 8 SDK.
 
 ```powershell
-./tools/PresentMon/Get-PresentMon.ps1   # downloads and hash-verifies the Intel binary (not committed)
+./tools/PresentMon/fetch.ps1   # downloads and hash-verifies the Intel binary (not committed)
 dotnet build ProSyS.sln -c Release
 dotnet run --project src/ProSyS.App -c Release
 dotnet run --project src/ProSyS.Cli -c Release -- audit --json
@@ -49,3 +49,7 @@ Data is stored under `%LOCALAPPDATA%\ProSySOptimizer`. Run `plan` before `optimi
 The GUI normally runs without elevation. Only the explicit “Create restore point” action starts a short-lived UAC helper; the helper accepts no arbitrary command or registry path. Optimization changes remain allowlisted `HKCU` values and are always backed up. Performance effects are measured rather than guaranteed. See [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) for verified scope and external release requirements.
 
 Vazirmatn font licensing and the pinned source hash are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## License
+
+ProSyS is released under the [MIT License](LICENSE). Bundled third-party components keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

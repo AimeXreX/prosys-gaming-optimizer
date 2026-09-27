@@ -4,126 +4,148 @@ using ProSyS.Core;
 
 namespace ProSyS.Windows;
 
-/// <summary>A conservative current-user catalog. Core changes are selected by default; preference changes are opt-in.</summary>
+/// <summary>
+/// A small, curated current-user catalog. Every offered entry maps to a documented Windows setting and names where it lives.
+/// Only Game Mode is selected by default; everything else is an explicit opt-in.
+/// </summary>
 public static class TweakCatalog
 {
+    private const string Gaming = "Gaming & Capture";
+    private const string Input = "Input";
+    private const string Accessibility = "Accessibility & Input";
+    private const string Preferences = "Preferences";
+    private const string GameDvr = @"Software\Microsoft\Windows\CurrentVersion\GameDVR";
+    private const string GameBar = @"Software\Microsoft\GameBar";
+    private const string ExplorerAdvanced = @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
+    private const string ContentDelivery = @"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager";
+
+    private static readonly Curated[] Entries =
+    {
+        new("gaming.gamebar", GameBar, "AutoGameModeEnabled", 1, RegistryValueKind.DWord, "Game Mode", Gaming,
+            "Turns on Windows Game Mode, which gives the game you are playing priority and holds back Windows Update driver installs and restart notifications while you play.",
+            "Game Mode is on by default in Windows 11; this turns it back on if it was switched off.",
+            "Settings › Gaming › Game Mode (Microsoft Support: \"Use Game Mode while gaming on your Windows device\")", Default: true, BenefitLevel.Low),
+        new("gaming.capture", GameDvr, "HistoricalCaptureEnabled", 0, RegistryValueKind.DWord, "Background recording (Record what happened)", Gaming,
+            "Stops Game Bar from continuously recording the last minutes of gameplay in the background.",
+            "Background recording keeps encoding video while you play, which costs GPU/CPU time and disk writes.",
+            "Settings › Gaming › Captures › Record what happened", Default: false, BenefitLevel.Low),
+        new("gaming.capture", GameDvr, "AppCaptureEnabled", 0, RegistryValueKind.DWord, "Game Bar screenshots and clips", Gaming,
+            "Turns off Game Bar screenshot and video capture for games.",
+            "Useful only if you never capture clips with Game Bar.",
+            "Settings › Gaming › Captures", Default: false, BenefitLevel.Negligible),
+        new("gaming.capture", GameDvr, "AudioCaptureEnabled", 0, RegistryValueKind.DWord, "Record game audio in captures", Gaming,
+            "Stops Game Bar from recording game audio together with captured clips.",
+            "Removes audio encoding from recordings you do not need sound for.",
+            "Settings › Gaming › Captures › Capture audio when recording a game", Default: false, BenefitLevel.Negligible),
+        new("gaming.capture", GameDvr, "MicrophoneCaptureEnabled", 0, RegistryValueKind.DWord, "Record microphone in captures", Gaming,
+            "Stops Game Bar from recording your microphone in captured clips.",
+            "Privacy: prevents voice chat from ending up in shared recordings.",
+            "Settings › Gaming › Captures › Capture microphone when recording", Default: false, BenefitLevel.None),
+        new("gaming.gamebar", GameBar, "UseNexusForGameBarEnabled", 0, RegistryValueKind.DWord, "Open Game Bar with the controller button", Gaming,
+            "Stops the Xbox button on a controller from opening Game Bar.",
+            "Avoids Game Bar popping up over the game when the controller button is pressed by accident.",
+            "Settings › Gaming › Game Bar", Default: false, BenefitLevel.None),
+        new("input.mouse", @"Control Panel\Mouse", "MouseSpeed", "0", RegistryValueKind.String, "Enhance pointer precision (mouse acceleration)", Input,
+            "Turns off mouse acceleration so the pointer moves the same distance for the same hand movement.",
+            "Gives consistent aim in games that use the Windows pointer; games using raw input are not affected.",
+            "Control Panel › Mouse › Pointer Options › Enhance pointer precision", Default: false, BenefitLevel.Low),
+        new("access.sticky", @"Control Panel\Accessibility\StickyKeys", "Flags", "506", RegistryValueKind.String, "Sticky Keys keyboard shortcut", Accessibility,
+            "Stops pressing Shift five times from opening the Sticky Keys prompt in the middle of a game. Sticky Keys itself stays available in Settings.",
+            "The prompt steals focus from full-screen games.",
+            "Settings › Accessibility › Keyboard › Sticky keys › Keyboard shortcut for Sticky keys", Default: false, BenefitLevel.None),
+        new("access.toggle", @"Control Panel\Accessibility\ToggleKeys", "Flags", "58", RegistryValueKind.String, "Toggle Keys keyboard shortcut", Accessibility,
+            "Stops holding Num Lock for five seconds from turning on Toggle Keys.",
+            "Prevents an accidental accessibility prompt during play.",
+            "Settings › Accessibility › Keyboard › Toggle keys", Default: false, BenefitLevel.None),
+        new("access.keyboard", @"Control Panel\Accessibility\Keyboard Response", "Flags", "122", RegistryValueKind.String, "Filter Keys keyboard shortcut", Accessibility,
+            "Stops holding the right Shift key for eight seconds from turning on Filter Keys.",
+            "Filter Keys ignores brief or repeated keystrokes, which breaks game input if it turns on by accident.",
+            "Settings › Accessibility › Keyboard › Filter keys", Default: false, BenefitLevel.None),
+        new("personalize", @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "EnableTransparency", 0, RegistryValueKind.DWord, "Transparency effects", Preferences,
+            "Turns off translucent window and taskbar effects.",
+            "A visual preference; can slightly reduce desktop composition work on low-end GPUs.",
+            "Settings › Personalization › Colors › Transparency effects", Default: false, BenefitLevel.Negligible),
+        new("shell.advanced", ExplorerAdvanced, "Start_IrisRecommendations", 0, RegistryValueKind.DWord, "Tips and new-app recommendations in Start", Preferences,
+            "Hides recommendations for tips, shortcuts and new apps in the Start menu.",
+            "A preference that removes promotional content from Start.",
+            "Settings › Personalization › Start", Default: false, BenefitLevel.None),
+        new("shell.advanced", ExplorerAdvanced, "Start_TrackDocs", 0, RegistryValueKind.DWord, "Recently opened items in Start and File Explorer", Preferences,
+            "Stops showing recently opened files in Start, Jump Lists and File Explorer.",
+            "A privacy preference.",
+            "Settings › Personalization › Start › Show recommended files…", Default: false, BenefitLevel.None),
+        new("content", ContentDelivery, "SubscribedContent-338389Enabled", 0, RegistryValueKind.DWord, "Tips and suggestions notifications", Preferences,
+            "Stops Windows from showing tips and suggestions as notifications.",
+            "Fewer interruptions while playing.",
+            "Settings › System › Notifications › Additional settings › Get tips and suggestions when using Windows", Default: false, BenefitLevel.None),
+        new("content", ContentDelivery, "SubscribedContent-338393Enabled", 0, RegistryValueKind.DWord, "Suggested content in Settings", Preferences,
+            "Hides suggested content in the Settings app.",
+            "A preference that removes promotional content from Settings.",
+            "Settings › Privacy & security › General › Show me suggested content in the Settings app", Default: false, BenefitLevel.None),
+    };
+
     public static IReadOnlyList<ITweak> CreateSafeTweaks() => CreateTweaks();
 
+    /// <summary>The capabilities offered to the user.</summary>
     public static IReadOnlyList<ITweak> CreateTweaks()
     {
-        var result = new List<ITweak>();
-        Add(result, "gaming.capture", @"Software\Microsoft\Windows\CurrentVersion\GameDVR", "Gaming & Capture", new[]
-        {
-            D("AppCaptureEnabled", 0, true, 1, 1), D("HistoricalCaptureEnabled", 0, true, 1, 1), D("AudioCaptureEnabled", 0),
-            D("MicrophoneCaptureEnabled", 0), D("CursorCaptureEnabled", 0), D("EchoCancellationEnabled", 0),
-            D("HistoricalCaptureOnBatteryAllowed", 0), D("HistoricalCaptureOnWirelessDisplayAllowed", 0), D("VideoEncodingBitrateMode", 0), D("VideoEncodingResolutionMode", 0), D("VideoEncodingFrameRateMode", 0),
-            D("VKToggleGameBar", 0), D("VKMToggleBroadcast", 0), D("VKMToggleCameraCapture", 0),
-            D("VKMToggleMicrophoneCapture", 0), D("VKMToggleRecording", 0)
-        });
-        Add(result, "gaming.gamebar", @"Software\Microsoft\GameBar", "Gaming & Capture", new[]
-        {
-            D("AutoGameModeEnabled", 1, true, 1), D("AllowAutoGameMode", 1, true, 1), D("ShowStartupPanel", 0, true),
-            D("ShowGameModeNotifications", 0), D("UseNexusForGameBarEnabled", 0),
-            D("ShowWidgetStoreBadge", 0), D("ShowAudioWidget", 0), D("ShowCaptureWidget", 0), D("ShowGalleryWidget", 0),
-            D("ShowLookingForGroupWidget", 0), D("ShowPerformanceWidget", 0), D("ShowResourcesWidget", 0),
-            D("ShowSocialWidget", 0), D("ShowXboxChatWidget", 0), D("WidgetTransparencyEnabled", 0), D("RememberOpenPanels", 0)
-        });
-        Add(result, "gaming.config", @"System\GameConfigStore", "Gaming & Capture", new[]
-        {
-            D("GameDVR_Enabled", 0, true, 1, 1), D("GameDVR_FSEBehaviorMode", 2), D("GameDVR_HonorUserFSEBehaviorMode", 1),
-            D("GameDVR_DXGIHonorFSEWindowsCompatible", 1), D("GameDVR_FSEBehavior", 2)
-        });
-        Add(result, "input.mouse", @"Control Panel\Mouse", "Input", new[]
-        {
-            S("MouseSpeed", "0"), S("MouseThreshold1", "0"), S("MouseThreshold2", "0"), S("MouseSensitivity", "10"),
-            S("MouseHoverTime", "400"), S("DoubleClickSpeed", "500"), S("DoubleClickHeight", "4"), S("DoubleClickWidth", "4"),
-            S("MouseTrails", "0"), S("SnapToDefaultButton", "0"), S("SwapMouseButtons", "0"), S("ActiveWindowTracking", "0"), S("Beep", "No")
-        });
-        Add(result, "shell.advanced", @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "Windows Shell", new[]
-        {
-            D("TaskbarAnimations", 0), D("ListviewAlphaSelect", 0), D("ListviewShadow", 0), D("IconsOnly", 1), D("ShowStatusBar", 1),
-            D("ShowInfoTip", 1), D("ShowCompColor", 0), D("ShowEncryptCompressedColor", 0), D("HideFileExt", 0), D("Hidden", 1),
-            D("ShowSuperHidden", 0), D("SeparateProcess", 1), D("LaunchTo", 1), D("NavPaneExpandToCurrentFolder", 1),
-            D("NavPaneShowAllFolders", 0), D("AutoCheckSelect", 0), D("DisablePreviewDesktop", 1), D("TaskbarGlomLevel", 0),
-            D("MMTaskbarGlomLevel", 0), D("TaskbarSmallIcons", 0), D("ShowSecondsInSystemClock", 0), D("Start_TrackDocs", 0),
-            D("Start_TrackProgs", 0), D("Start_IrisRecommendations", 0), D("Start_AccountNotifications", 0), D("ShowTaskViewButton", 0),
-            D("TaskbarDa", 0), D("TaskbarMn", 0), D("TaskbarAl", 0), D("EnableSnapBar", 1), D("EnableSnapAssistFlyout", 1),
-            D("EnableTaskGroups", 1)
-        });
-        Add(result, "desktop", @"Control Panel\Desktop", "Desktop Responsiveness", new[]
-        {
-            S("MenuShowDelay", "100"), S("AutoEndTasks", "0"), S("HungAppTimeout", "5000"), S("WaitToKillAppTimeout", "5000"),
-            S("LowLevelHooksTimeout", "1000"), S("ForegroundLockTimeout", "200000"), S("ForegroundFlashCount", "3"),
-            S("DragFullWindows", "1"), S("FontSmoothing", "2"), S("FontSmoothingType", "2"), S("FontSmoothingGamma", "1500"),
-            S("SmoothScroll", "1"), S("WheelScrollLines", "3"), S("WheelScrollChars", "3"), S("ClickLockTime", "1200"),
-            S("CaretTimeout", "5000"), S("CaretWidth", "1"), S("CursorBlinkRate", "530"), S("ScreenSaveActive", "0")
-        });
-        Add(result, "access.keyboard", @"Control Panel\Accessibility\Keyboard Response", "Accessibility & Input", new[]
-        {
-            S("Flags", "122"), S("AutoRepeatDelay", "1000"), S("AutoRepeatRate", "500"), S("BounceTime", "0"),
-            S("DelayBeforeAcceptance", "1000")
-        });
-        Add(result, "access.sticky", @"Control Panel\Accessibility\StickyKeys", "Accessibility & Input", new[]
-        {
-            S("Flags", "506"), S("AudibleFeedback", "0"), S("HotKeyActive", "0"), S("HotKeySound", "0"),
-            S("ConfirmHotKey", "0"), S("TriState", "0"), S("TwoKeysOff", "1")
-        });
-        Add(result, "access.toggle", @"Control Panel\Accessibility\ToggleKeys", "Accessibility & Input", new[]
-        { S("Flags", "58"), S("HotKeyActive", "0"), S("HotKeySound", "0"), S("ConfirmHotKey", "0"), S("On", "0") });
-        Add(result, "access.mousekeys", @"Control Panel\Accessibility\MouseKeys", "Accessibility & Input", new[]
-        {
-            S("Flags", "62"), S("MaximumSpeed", "80"), S("TimeToMaximumSpeed", "3000"), S("HotKeyActive", "0"),
-            S("HotKeySound", "0"), S("MouseKeysOn", "0"), S("UseCtrlAlt", "1")
-        });
-        Add(result, "personalize", @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "Personalization", new[]
-        { D("EnableTransparency", 0), D("AppsUseLightTheme", 0), D("SystemUsesLightTheme", 0), D("ColorPrevalence", 1), D("EnableBlurBehind", 0) });
-        Add(result, "dwm", @"Software\Microsoft\Windows\DWM", "Desktop Composition", new[]
-        {
-            D("EnableAeroPeek", 0), D("ColorPrevalence", 1), D("AccentColorInactive", 0),
-            D("ColorizationOpaqueBlend", 0), D("EnableWindowColorization", 1)
-        });
-        Add(result, "search", @"Software\Microsoft\Windows\CurrentVersion\Search", "Search & Background", new[]
-        {
-            D("SearchboxTaskbarMode", 0), D("BingSearchEnabled", 0), D("CortanaConsent", 0), D("DeviceHistoryEnabled", 0),
-            D("HistoryViewEnabled", 0), D("SafeSearchMode", 1), D("SearchHistoryEnabled", 0), D("IsDynamicSearchBoxEnabled", 0)
-        });
-        Add(result, "content", @"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager", "Background Content", new[]
-        {
-            D("ContentDeliveryAllowed", 0), D("OemPreInstalledAppsEnabled", 0),
-            D("PreInstalledAppsEnabled", 0), D("SilentInstalledAppsEnabled", 0),
-            D("SoftLandingEnabled", 0), D("SubscribedContentEnabled", 0), D("SystemPaneSuggestionsEnabled", 0),
-            D("RotatingLockScreenEnabled", 0), D("RotatingLockScreenOverlayEnabled", 0), D("SubscribedContent-310093Enabled", 0), D("SubscribedContent-338388Enabled", 0), D("SubscribedContent-338389Enabled", 0),
-            D("SubscribedContent-338393Enabled", 0), D("SubscribedContent-353694Enabled", 0), D("SubscribedContent-353696Enabled", 0)
-        });
-
+        var result = Entries.Select(Create).ToList();
         if (result.Select(x => x.Metadata.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count)
             throw new InvalidOperationException("Tweak catalog contains duplicate identifiers.");
         return result.AsReadOnly();
     }
 
-    private static void Add(ICollection<ITweak> target, string groupId, string path, string category, IEnumerable<Spec> specs)
+    /// <summary>
+    /// Offered capabilities plus entries retired from earlier versions. Retired entries are never offered; they exist only so
+    /// backups taken by ProSyS 1.0 can still be restored exactly.
+    /// </summary>
+    public static IReadOnlyList<ITweak> CreateRollbackCatalog()
     {
-        foreach (var spec in specs)
+        var result = new List<ITweak>(CreateTweaks());
+        var offered = result.Select(x => x.Metadata.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Retired(result, "gaming.capture", @"Software\Microsoft\Windows\CurrentVersion\GameDVR", dwords: new[] { "AppCaptureEnabled", "HistoricalCaptureEnabled", "AudioCaptureEnabled", "MicrophoneCaptureEnabled", "CursorCaptureEnabled", "EchoCancellationEnabled", "HistoricalCaptureOnBatteryAllowed", "HistoricalCaptureOnWirelessDisplayAllowed", "MaximumRecordLength", "VideoEncodingBitrateMode", "VideoEncodingResolutionMode", "VideoEncodingFrameRateMode", "VKToggleGameBar", "VKMToggleBroadcast", "VKMToggleCameraCapture", "VKMToggleMicrophoneCapture", "VKMToggleRecording" }, strings: Array.Empty<string>());
+        Retired(result, "gaming.gamebar", @"Software\Microsoft\GameBar", dwords: new[] { "AutoGameModeEnabled", "AllowAutoGameMode", "ShowStartupPanel", "ShowGameModeNotifications", "GamePanelStartupTipIndex", "UseNexusForGameBarEnabled", "ShowWidgetStoreBadge", "ShowAudioWidget", "ShowCaptureWidget", "ShowGalleryWidget", "ShowLookingForGroupWidget", "ShowPerformanceWidget", "ShowResourcesWidget", "ShowSocialWidget", "ShowXboxChatWidget", "WidgetTransparencyEnabled", "RememberOpenPanels" }, strings: Array.Empty<string>());
+        Retired(result, "gaming.config", @"System\GameConfigStore", dwords: new[] { "GameDVR_Enabled", "GameDVR_FSEBehaviorMode", "GameDVR_HonorUserFSEBehaviorMode", "GameDVR_DXGIHonorFSEWindowsCompatible", "GameDVR_EFSEFeatureFlags", "GameDVR_DSEBehavior", "GameDVR_FSEBehavior", "Win32_AutoGameModeDefaultProfile", "Win32_GameModeRelatedProcesses" }, strings: Array.Empty<string>());
+        Retired(result, "input.mouse", @"Control Panel\Mouse", dwords: Array.Empty<string>(), strings: new[] { "MouseSpeed", "MouseThreshold1", "MouseThreshold2", "MouseSensitivity", "MouseHoverTime", "DoubleClickSpeed", "DoubleClickHeight", "DoubleClickWidth", "MouseTrails", "SnapToDefaultButton", "SwapMouseButtons", "ActiveWindowTracking", "Beep" });
+        Retired(result, "shell.advanced", @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", dwords: new[] { "TaskbarAnimations", "ListviewAlphaSelect", "ListviewShadow", "IconsOnly", "ShowStatusBar", "ShowInfoTip", "ShowCompColor", "ShowEncryptCompressedColor", "HideFileExt", "Hidden", "ShowSuperHidden", "SeparateProcess", "LaunchTo", "NavPaneExpandToCurrentFolder", "NavPaneShowAllFolders", "AutoCheckSelect", "DisablePreviewDesktop", "TaskbarGlomLevel", "MMTaskbarGlomLevel", "TaskbarSmallIcons", "ShowSecondsInSystemClock", "Start_TrackDocs", "Start_TrackProgs", "Start_IrisRecommendations", "Start_AccountNotifications", "ShowTaskViewButton", "TaskbarDa", "TaskbarMn", "TaskbarAl", "EnableSnapBar", "EnableSnapAssistFlyout", "EnableTaskGroups", "PersistBrowsers", "ReindexedProfile" }, strings: Array.Empty<string>());
+        Retired(result, "desktop", @"Control Panel\Desktop", dwords: Array.Empty<string>(), strings: new[] { "MenuShowDelay", "AutoEndTasks", "HungAppTimeout", "WaitToKillAppTimeout", "LowLevelHooksTimeout", "ForegroundLockTimeout", "ForegroundFlashCount", "DragFullWindows", "FontSmoothing", "FontSmoothingType", "FontSmoothingGamma", "SmoothScroll", "WheelScrollLines", "WheelScrollChars", "ClickLockTime", "CaretTimeout", "CaretWidth", "CursorBlinkRate", "JPEGImportQuality", "Pattern", "TileWallpaper", "WallpaperStyle", "ScreenSaveActive" });
+        Retired(result, "access.keyboard", @"Control Panel\Accessibility\Keyboard Response", dwords: Array.Empty<string>(), strings: new[] { "Flags", "AutoRepeatDelay", "AutoRepeatRate", "BounceTime", "DelayBeforeAcceptance", "Last BounceKey Setting", "Last Valid Delay", "Last Valid Repeat", "Last Valid Wait" });
+        Retired(result, "access.sticky", @"Control Panel\Accessibility\StickyKeys", dwords: Array.Empty<string>(), strings: new[] { "Flags", "AudibleFeedback", "HotKeyActive", "HotKeySound", "ConfirmHotKey", "TriState", "TwoKeysOff" });
+        Retired(result, "access.toggle", @"Control Panel\Accessibility\ToggleKeys", dwords: Array.Empty<string>(), strings: new[] { "Flags", "HotKeyActive", "HotKeySound", "ConfirmHotKey", "On" });
+        Retired(result, "access.mousekeys", @"Control Panel\Accessibility\MouseKeys", dwords: Array.Empty<string>(), strings: new[] { "Flags", "MaximumSpeed", "TimeToMaximumSpeed", "HotKeyActive", "HotKeySound", "MouseKeysOn", "UseCtrlAlt" });
+        Retired(result, "personalize", @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", dwords: new[] { "EnableTransparency", "AppsUseLightTheme", "SystemUsesLightTheme", "ColorPrevalence", "EnableBlurBehind" }, strings: Array.Empty<string>());
+        Retired(result, "dwm", @"Software\Microsoft\Windows\DWM", dwords: new[] { "EnableAeroPeek", "AlwaysHibernateThumbnails", "ColorPrevalence", "AccentColorInactive", "Composition", "ColorizationOpaqueBlend", "EnableWindowColorization", "ForceEffectMode" }, strings: Array.Empty<string>());
+        Retired(result, "search", @"Software\Microsoft\Windows\CurrentVersion\Search", dwords: new[] { "SearchboxTaskbarMode", "BingSearchEnabled", "CortanaConsent", "DeviceHistoryEnabled", "HistoryViewEnabled", "SafeSearchMode", "SearchHistoryEnabled", "IsDynamicSearchBoxEnabled" }, strings: Array.Empty<string>());
+        Retired(result, "content", @"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager", dwords: new[] { "ContentDeliveryAllowed", "FeatureManagementEnabled", "OemPreInstalledAppsEnabled", "PreInstalledAppsEnabled", "PreInstalledAppsEverEnabled", "SilentInstalledAppsEnabled", "SoftLandingEnabled", "SubscribedContentEnabled", "SystemPaneSuggestionsEnabled", "RotatingLockScreenEnabled", "RotatingLockScreenOverlayEnabled", "RemediationRequired", "SubscribedContent-310093Enabled", "SubscribedContent-338388Enabled", "SubscribedContent-338389Enabled", "SubscribedContent-338393Enabled", "SubscribedContent-353694Enabled", "SubscribedContent-353696Enabled" }, strings: Array.Empty<string>());
+        return result.Where((x, i) => i < offered.Count || !offered.Contains(x.Metadata.Id)).ToList().AsReadOnly();
+    }
+
+    public static string IdFor(string groupId, string valueName) => $"{groupId}.{Regex.Replace(valueName, "[^A-Za-z0-9]+", "-").Trim('-').ToLowerInvariant()}";
+
+    private static ITweak Create(Curated entry)
+    {
+        // Control Panel values are read by Windows at sign-in; writing them does not change the live session.
+        var requiresSignOut = entry.Path.StartsWith(@"Control Panel\", StringComparison.OrdinalIgnoreCase);
+        var risk = entry.Default ? RiskProfile.Safe() : new RiskProfile(RiskLevel.Low, 0, 0, 0, 0, 1, Reversibility.Easy, Confidence.High);
+        var metadata = new TweakMetadata(IdFor(entry.Group, entry.ValueName), 3, entry.Name, entry.Description, entry.Category, entry.Why,
+            risk, entry.Benefit, EvidenceType.OfficialDocumentation, false, requiresSignOut, false, false, false, new[] { "Windows 11 22000+" },
+            Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
+            "Restore the exact original registry value and type, or remove it (and any key created for it) when it did not exist.",
+            "2026-09-27", entry.Default, entry.Reference);
+        return new RegistryTweak(metadata, entry.Path, entry.ValueName, entry.Recommended, entry.Kind);
+    }
+
+    private static void Retired(List<ITweak> target, string groupId, string path, string[] dwords, string[] strings)
+    {
+        foreach (var (name, kind) in dwords.Select(x => (x, RegistryValueKind.DWord)).Concat(strings.Select(x => (x, RegistryValueKind.String))))
         {
-            var slug = Regex.Replace(spec.ValueName, "[^A-Za-z0-9]+", "-").Trim('-').ToLowerInvariant();
-            var name = Humanize(spec.ValueName);
-            // Control Panel values are read by Windows at sign-in; writing them does not change the live session.
-            var requiresSignOut = path.StartsWith(@"Control Panel\", StringComparison.OrdinalIgnoreCase);
-            var risk = spec.Default ? RiskProfile.Safe(spec.Performance, spec.Latency) :
-                new RiskProfile(RiskLevel.Low, spec.Performance, spec.Latency, 0, 0, 2, Reversibility.Easy, Confidence.Medium);
-            var metadata = new TweakMetadata($"{groupId}.{slug}", 2, name,
-                $"Configure the current-user {name.ToLowerInvariant()} preference.", category,
-                "An allowlisted Windows 11 user preference. Measure the result and retain it only when it improves the intended workflow.",
-                risk, spec.Performance + spec.Latency > 0 ? BenefitLevel.Low : BenefitLevel.Negligible,
-                spec.Default ? EvidenceType.GenerallySupportedBehavior : EvidenceType.Legacy, false, requiresSignOut, false, false, false, new[] { "Windows 11 22000+" },
-                Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
-                "Restore the exact original registry value and type, or remove it when it did not exist.", "2026-09-25", spec.Default);
-            target.Add(new RegistryTweak(metadata, path, spec.ValueName, spec.Recommended, spec.Kind));
+            var metadata = new TweakMetadata(IdFor(groupId, name), 1, name, "Retired capability kept only to restore older backups.", "Retired",
+                "Not offered.", new RiskProfile(RiskLevel.Low, 0, 0, 0, 0, 1, Reversibility.Easy, Confidence.Medium), BenefitLevel.None, EvidenceType.Legacy,
+                false, path.StartsWith(@"Control Panel\", StringComparison.OrdinalIgnoreCase), false, false, false, new[] { "Windows 11 22000+" },
+                Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), "Restore the exact original registry value and type.", "2026-09-27", false);
+            target.Add(new RegistryTweak(metadata, path, name, kind == RegistryValueKind.DWord ? 0 : string.Empty, kind));
         }
     }
 
-    private static string Humanize(string value) => Regex.Replace(value, "([a-z0-9])([A-Z])", "$1 $2").Replace('_', ' ');
-    private static Spec D(string name, int value, bool selected = false, int performance = 0, int latency = 0) => new(name, value, RegistryValueKind.DWord, selected, performance, latency);
-    private static Spec S(string name, string value, bool selected = false, int performance = 0, int latency = 0) => new(name, value, RegistryValueKind.String, selected, performance, latency);
-    private sealed record Spec(string ValueName, object Recommended, RegistryValueKind Kind, bool Default, int Performance, int Latency);
+    private sealed record Curated(string Group, string Path, string ValueName, object Recommended, RegistryValueKind Kind, string Name, string Category,
+        string Description, string Why, string Reference, bool Default, BenefitLevel Benefit);
 }

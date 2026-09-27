@@ -34,6 +34,49 @@ public class RegistryTweakTests
         Assert.Equal(ValueText.Canonical(original, kind), ValueText.Canonical(restored, kind));
     }
 
+    [Fact]
+    public void DwordAboveIntMaxKeepsItsBitPattern()
+    {
+        var backup = JsonSerializer.Deserialize<TweakBackup>("""{"TweakId":"id","ValueExisted":true,"OriginalValue":4294967295,"ValueKind":"DWord","CapturedAt":"2026-01-01T00:00:00+00:00"}""")!;
+        Assert.Equal(-1, RegistryTweak.ConvertBackupValue(backup));
+    }
+
+    [WindowsFact]
+    public async Task RollbackRemovesKeysCreatedByApply()
+    {
+        const string created = TestKey + @"\Created\Deeper";
+        Registry.CurrentUser.DeleteSubKeyTree(TestKey, false);
+        using (Registry.CurrentUser.CreateSubKey(TestKey, true)) { }
+        var tweak = new RegistryTweak(TestData.Metadata("test.created"), created, "Value", 1);
+        try
+        {
+            var backup = await tweak.BackupAsync();
+            Assert.Equal(TestKey + @"\Created", backup.MissingKeyPath);
+            await tweak.ApplyAsync();
+            await tweak.RollbackAsync(backup);
+            using var parent = Registry.CurrentUser.OpenSubKey(TestKey)!;
+            Assert.Empty(parent.GetSubKeyNames());
+            Assert.Equal(DetectionStatus.Absent, (await tweak.VerifyRollbackAsync(backup)).Status);
+        }
+        finally { Registry.CurrentUser.DeleteSubKeyTree(TestKey, false); }
+    }
+
+    [WindowsFact]
+    public async Task RollbackVerificationDetectsTypeChange()
+    {
+        using (var key = Registry.CurrentUser.CreateSubKey(TestKey, true)) key.SetValue("Typed", "5", RegistryValueKind.String);
+        var tweak = new RegistryTweak(TestData.Metadata("test.typed"), TestKey, "Typed", 0);
+        try
+        {
+            var backup = await tweak.BackupAsync();
+            using (var key = Registry.CurrentUser.OpenSubKey(TestKey, true)!) key.SetValue("Typed", 5, RegistryValueKind.DWord);
+            Assert.Equal(DetectionStatus.NonCompliant, (await tweak.VerifyRollbackAsync(backup)).Status);
+            await tweak.RollbackAsync(backup);
+            Assert.Equal(DetectionStatus.Present, (await tweak.VerifyRollbackAsync(backup)).Status);
+        }
+        finally { Registry.CurrentUser.DeleteSubKeyTree(TestKey, false); }
+    }
+
     [WindowsFact]
     public async Task ApplyVerifyRollbackIsIdempotent()
     {
@@ -86,39 +129,56 @@ public class RegistryTweakTests
 public class CatalogTests
 {
     [Fact]
-    public void CatalogIdentifiersAreUniqueAndUserLevel()
+    public void CatalogIsSmallCuratedAndReferenced()
     {
         var catalog = TweakCatalog.CreateTweaks();
+        Assert.Equal(15, catalog.Count);
         Assert.Equal(catalog.Count, catalog.Select(x => x.Metadata.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
-        Assert.InRange(catalog.Count(x => x.Metadata.RecommendedByDefault), 1, 10);
+        Assert.All(catalog, x => Assert.False(string.IsNullOrWhiteSpace(x.Metadata.Reference), x.Metadata.Id));
         Assert.All(catalog, x => Assert.True(!x.Metadata.RequiresAdministrator && x.Metadata.Risk.Reversibility == Reversibility.Easy));
+        Assert.Contains(catalog, x => x.Metadata.Category == "Preferences");
     }
 
     [Fact]
-    public void CatalogExcludesInternalAndMistypedValues()
+    public void OnlyGameModeIsSelectedByDefault()
     {
-        var ids = TweakCatalog.CreateTweaks().Select(x => x.Metadata.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var defaults = TweakCatalog.CreateTweaks().Where(x => x.Metadata.RecommendedByDefault).Select(x => x.Metadata.Id);
+        Assert.Equal(new[] { "gaming.gamebar.autogamemodeenabled" }, defaults);
+    }
+
+    [Fact]
+    public void CatalogExcludesFullscreenDwmAndInternalValues()
+    {
+        var ids = TweakCatalog.CreateTweaks().Select(x => x.Metadata.Id).ToList();
+        Assert.DoesNotContain(ids, x => x.StartsWith("gaming.config.", StringComparison.Ordinal)); // GameDVR_FSE* / GameConfigStore
+        Assert.DoesNotContain(ids, x => x.StartsWith("dwm.", StringComparison.Ordinal));
         Assert.DoesNotContain("gaming.capture.maximumrecordlength", ids);
         Assert.DoesNotContain("shell.advanced.reindexedprofile", ids);
-        Assert.DoesNotContain("dwm.forceeffectmode", ids);
+    }
+
+    [Fact]
+    public void RollbackCatalogStillCoversEveryEarlierCapability()
+    {
+        var rollback = TweakCatalog.CreateRollbackCatalog();
+        Assert.Equal(180, rollback.Count);
+        Assert.Equal(rollback.Count, rollback.Select(x => x.Metadata.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Contains(rollback, x => x.Metadata.Id == "gaming.capture.maximumrecordlength");
+        Assert.All(TweakCatalog.CreateTweaks(), offered => Assert.Contains(rollback, x => x.Metadata.Id == offered.Metadata.Id));
     }
 
     [Fact]
     public void ControlPanelValuesDeclareSignOut()
     {
         var catalog = TweakCatalog.CreateTweaks();
-        Assert.All(catalog.Where(x => x.Metadata.Category is "Input" or "Desktop Responsiveness" or "Accessibility & Input"), x => Assert.True(x.Metadata.RequiresSignOut, x.Metadata.Id));
+        Assert.All(catalog.Where(x => x.Metadata.Category is "Input" or "Accessibility & Input"), x => Assert.True(x.Metadata.RequiresSignOut, x.Metadata.Id));
         Assert.All(catalog.Where(x => x.Metadata.Category == "Gaming & Capture"), x => Assert.False(x.Metadata.RequiresSignOut, x.Metadata.Id));
     }
 
     [Fact]
-    public void SafeProfileOnlyContainsDefaultRecommendations()
+    public void SafeProfileIsGameModeOnly()
     {
-        var catalog = TweakCatalog.CreateTweaks();
-        var safe = catalog.Where(x => new RiskEngine().AllowedInSafeProfile(x.Metadata)).ToList();
-        Assert.NotEmpty(safe);
-        Assert.All(safe, x => Assert.True(x.Metadata.RecommendedByDefault));
-        Assert.True(safe.Count < catalog.Count);
+        var safe = TweakCatalog.CreateTweaks().Where(x => new RiskEngine().AllowedInSafeProfile(x.Metadata)).Select(x => x.Metadata.Id);
+        Assert.Equal(new[] { "gaming.gamebar.autogamemodeenabled" }, safe);
     }
 
     [Fact]
@@ -126,8 +186,8 @@ public class CatalogTests
     {
         foreach (var tweak in TweakCatalog.CreateTweaks())
         {
-            Assert.Contains(UiLocalization.Translate(tweak.Metadata.Name, true), ch => ch is >= '؀' and <= 'ۿ');
-            Assert.False(UiLocalization.Translate(tweak.Metadata.Description, true).StartsWith("Configure the current-user", StringComparison.Ordinal), tweak.Metadata.Id);
+            Assert.Contains(UiLocalization.Translate(tweak.Metadata.Name, true), ch => ch is >= '\u0600' and <= '\u06ff');
+            Assert.Contains(UiLocalization.Translate(tweak.Metadata.Description, true), ch => ch is >= '\u0600' and <= '\u06ff');
             Assert.NotEqual(tweak.Metadata.Category, UiLocalization.Translate(tweak.Metadata.Category, true));
         }
     }
@@ -171,18 +231,26 @@ public class StorageAndUpdateTests
     }
 
     [Fact]
-    public void SignedManifestsRejectTamperingAndDowngrades()
+    public void SignedManifestsRejectTamperingDowngradesAndExpiry()
     {
         using var rsa = RSA.Create(2048);
-        var unsigned = new SignedUpdateManifest("1.2.3", "https://updates.example.test/prosys.msix", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("package"))), "");
-        var signature = rsa.SignData(Encoding.UTF8.GetBytes(SecureUpdateVerifier.CanonicalPayload(unsigned)), HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
-        var signed = unsigned with { Signature = Convert.ToBase64String(signature) };
+        var now = new DateTimeOffset(2026, 9, 27, 0, 0, 0, TimeSpan.Zero);
         var key = rsa.ExportSubjectPublicKeyInfoPem();
+        SignedUpdateManifest Sign(SignedUpdateManifest manifest) => manifest with
+        {
+            Signature = Convert.ToBase64String(rsa.SignData(Encoding.UTF8.GetBytes(SecureUpdateVerifier.CanonicalPayload(manifest)), HashAlgorithmName.SHA256, RSASignaturePadding.Pss))
+        };
+        var valid = Sign(new SignedUpdateManifest(2, "1.2.3", "https://updates.example.test/prosys.exe", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("package"))), now.AddDays(30), ""));
+        string Json(SignedUpdateManifest manifest) => JsonSerializer.Serialize(manifest);
 
-        Assert.Equal("1.2.3", SecureUpdateVerifier.ParseAndVerify(JsonSerializer.Serialize(signed), key, new Version(1, 2, 0)).Version);
-        Assert.Throws<CryptographicException>(() => SecureUpdateVerifier.ParseAndVerify(JsonSerializer.Serialize(signed with { Version = "1.2.4" }), key));
-        Assert.Throws<InvalidDataException>(() => SecureUpdateVerifier.ParseAndVerify(JsonSerializer.Serialize(signed), key, new Version(1, 2, 3)));
-        Assert.Throws<InvalidDataException>(() => SecureUpdateVerifier.ParseAndVerify("{}", key));
+        Assert.Equal("1.2.3", SecureUpdateVerifier.ParseAndVerify(Json(valid), key, new Version(1, 2, 0), now).Version);
+        Assert.Throws<CryptographicException>(() => SecureUpdateVerifier.ParseAndVerify(Json(valid with { Version = "1.2.4" }), key, now: now));
+        Assert.Throws<CryptographicException>(() => SecureUpdateVerifier.ParseAndVerify(Json(valid with { ExpiresAt = now.AddDays(60) }), key, now: now));
+        Assert.Throws<InvalidDataException>(() => SecureUpdateVerifier.ParseAndVerify(Json(valid), key, new Version(1, 2, 3), now));
+        Assert.Throws<InvalidDataException>(() => SecureUpdateVerifier.ParseAndVerify(Json(valid), key, now: now.AddDays(31)));
+        Assert.Throws<InvalidDataException>(() => SecureUpdateVerifier.ParseAndVerify(Json(Sign(valid with { ExpiresAt = now.AddDays(91) })), key, now: now));
+        Assert.Throws<InvalidDataException>(() => SecureUpdateVerifier.ParseAndVerify(Json(Sign(valid with { SchemaVersion = 1 })), key, now: now));
+        Assert.Throws<InvalidDataException>(() => SecureUpdateVerifier.ParseAndVerify("{}", key, now: now));
     }
 }
 
@@ -200,6 +268,35 @@ public class BenchmarkTests
         Assert.Equal(240, result.FrameCount);
         Assert.True(result.AverageFps > 55 && result.OnePercentLowFps > 0);
         Assert.Equal(BenchmarkComparability.High, BenchmarkEngine.Compare(result, result with { AverageFps = result.AverageFps * 1.03 }).Comparability);
+    }
+
+    private static BenchmarkSummary Run(double averageFps, bool baseline, int duration = 30, string game = "game.exe") =>
+        new(Guid.NewGuid(), DateTimeOffset.UtcNow, "PresentMon 2.6.0", game, 1000, averageFps, averageFps * 0.7, averageFps * 0.5, 1000 / averageFps, 1500 / averageFps, 1,
+            new BenchmarkFingerprint(game, "26100", "32.0", "Balanced", "snapshot", duration), "run.csv", baseline);
+
+    [Fact]
+    public void SetComparisonNeedsThreeRunsPerSide()
+    {
+        var result = BenchmarkEngine.CompareSets(new[] { Run(100, true), Run(101, true) }, new[] { Run(120, false), Run(121, false), Run(119, false) });
+        Assert.Equal(BenchmarkVerdict.InsufficientRuns, result.Verdict);
+    }
+
+    [Fact]
+    public void SetComparisonDetectsImprovementRegressionAndNoise()
+    {
+        var baseline = new[] { Run(100, true), Run(101, true), Run(99, true) };
+        Assert.Equal(BenchmarkVerdict.Improvement, BenchmarkEngine.CompareSets(baseline, new[] { Run(110, false), Run(111, false), Run(109, false) }).Verdict);
+        var regression = BenchmarkEngine.CompareSets(baseline, new[] { Run(90, false), Run(91, false), Run(89, false) });
+        Assert.Equal(BenchmarkVerdict.Regression, regression.Verdict);
+        Assert.True(regression.AverageFps!.CiHighPercent < 0);
+        Assert.Equal(BenchmarkVerdict.NoSignificantChange, BenchmarkEngine.CompareSets(new[] { Run(90, true), Run(110, true), Run(100, true) }, new[] { Run(95, false), Run(112, false), Run(101, false) }).Verdict);
+    }
+
+    [Fact]
+    public void SetComparisonRejectsDifferentDurations()
+    {
+        var result = BenchmarkEngine.CompareSets(new[] { Run(100, true), Run(101, true), Run(99, true) }, new[] { Run(110, false, 60), Run(111, false, 60), Run(109, false, 60) });
+        Assert.Equal(BenchmarkVerdict.NotComparable, result.Verdict);
     }
 
     [PresentMonFact]
@@ -258,13 +355,15 @@ public class SystemIntegrationTests
     }
 
     [WindowsFact]
-    public void CpuPriorityUsesHighAndRestoresExactly()
+    public void CpuPriorityUsesAboveNormalAndRestoresExactly()
     {
         using var process = Process.GetCurrentProcess();
         var priority = process.PriorityClass;
         var boost = process.PriorityBoostEnabled;
         var session = new ProcessCpuOptimizer().Apply(process);
-        Assert.Equal(ProcessPriorityClass.High, process.PriorityClass);
+        process.Refresh();
+        Assert.Equal(ProcessPriorityClass.AboveNormal, process.PriorityClass);
+        Assert.Equal(boost, process.PriorityBoostEnabled);
         Assert.Contains("never", session.AppliedMode, StringComparison.OrdinalIgnoreCase);
         Assert.True(session.TryRestore());
         process.Refresh();

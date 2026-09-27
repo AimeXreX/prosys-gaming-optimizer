@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 
 // Deliberately short-lived and allowlisted: no arbitrary command, registry path or shell execution is accepted.
-// Exit codes: 0 created and verified, 2 Windows reported an error, 3 System Protection is off,
-// 4 Windows accepted the call but did not create a point (frequency limit), 64 unsupported request.
+// Exit codes: 0 created and verified, 2 Windows reported an error, 3 Windows accepted the call but did not create a
+// point (24-hour frequency limit), 4 System Restore / System Protection is off, 64 unsupported request.
 const int BeginSystemChange = 100, EndSystemChange = 101, ApplicationInstall = 0;
 const int ErrorServiceDisabled = 1058;
 
@@ -19,7 +19,7 @@ if (args is ["create-restore-point", var description] && description.Length is >
     if (!SRSetRestorePoint(ref begin, out var status) || status.Status != 0)
     {
         Console.Error.WriteLine(JsonSerializer.Serialize(new { ok = false, error = status.Status }));
-        return status.Status == ErrorServiceDisabled ? 3 : 2;
+        return status.Status == ErrorServiceDisabled ? 4 : 2;
     }
     // Windows requires every BEGIN_SYSTEM_CHANGE to be closed with END_SYSTEM_CHANGE for the same sequence number.
     var end = new RestorePointInfo { EventType = EndSystemChange, RestorePointType = ApplicationInstall, SequenceNumber = status.SequenceNumber, Description = description };
@@ -32,7 +32,7 @@ if (args is ["create-restore-point", var description] && description.Length is >
     if (!RestorePointExists(status.SequenceNumber, description))
     {
         Console.Error.WriteLine(JsonSerializer.Serialize(new { ok = false, error = "not-created", sequence = status.SequenceNumber }));
-        return 4;
+        return 3;
     }
     Console.WriteLine(JsonSerializer.Serialize(new { ok = true, sequence = status.SequenceNumber }));
     return 0;

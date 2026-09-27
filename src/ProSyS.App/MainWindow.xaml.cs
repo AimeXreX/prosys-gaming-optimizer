@@ -20,13 +20,15 @@ public partial class MainWindow : Window
 {
     private readonly WindowsSystemScanner _scanner = new();
     private readonly IReadOnlyList<ITweak> _tweaks = TweakCatalog.CreateSafeTweaks();
+    // Includes entries retired from earlier versions so their backups can still be restored.
+    private readonly IReadOnlyList<ITweak> _rollbackTweaks = TweakCatalog.CreateRollbackCatalog();
     private readonly string _root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProSySOptimizer");
     private readonly ObservableCollection<RecommendationViewModel> _recommendations = new();
     private readonly ObservableCollection<BackupViewModel> _backups = new();
     private readonly ObservableCollection<GameProfile> _gameProfiles = new();
     private readonly ObservableCollection<BenchmarkSummary> _benchmarkHistory = new();
     private readonly UiLocalization _localization = new();
-    private readonly CheckBox _profileCpuPriorityCheck = new() { IsChecked = true, Margin = new Thickness(0, 8, 0, 8) };
+    private readonly CheckBox _profileCpuPriorityCheck = new() { IsChecked = false, Margin = new Thickness(0, 8, 0, 8) };
     private readonly Button _cpuBoostButton = new() { Margin = new Thickness(0, 4, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
     private CpuOptimizationSession? _activeCpuSession;
     private readonly List<ActiveGameSession> _activeGameSessions = new();
@@ -73,7 +75,7 @@ public partial class MainWindow : Window
         await LoadBenchmarkHistoryAsync();
         var trust = CreateBenchmarkEngine().VerifyTool();
         PresentMonTrustText.Text = trust.Trusted
-            ? T("Verified: official Intel-signed PresentMon 2.6.0 with pinned SHA-256.", "تأیید شد: PresentMon رسمی نسخه ۲.۶.۰ با امضای Intel و هش ثابت.")
+            ? T("Verified: PresentMon 2.6.0 matches the pinned SHA-256 of the official release.", "تأیید شد: PresentMon نسخه ۲.۶.۰ با هش ثابت نسخه رسمی مطابقت دارد.")
             : T(trust.Message, "ابزار بنچمارک قابل اعتماد نیست: " + trust.Message);
         var incomplete = Engine().FindIncompleteSessions();
         if (incomplete.Count > 0)
@@ -216,7 +218,8 @@ public partial class MainWindow : Window
         DetailName.Text = item.Name;
         DetailDescription.Text = item.Description;
         DetailWhy.Text = _persian ? $"چرا پیشنهاد شده: {item.Why}" : $"Why: {item.Why}";
-        DetailEvidence.Text = _persian ? $"شواهد: {item.Evidence} • اطمینان: {item.Confidence} • اثر احتمالی: {item.Benefit}" : $"Evidence: {item.Evidence} • Confidence: {item.Confidence} • Benefit: {item.Benefit}";
+        DetailEvidence.Text = (_persian ? $"شواهد: {item.Evidence} • اطمینان: {item.Confidence} • اثر احتمالی: {item.Benefit}" : $"Evidence: {item.Evidence} • Confidence: {item.Confidence} • Benefit: {item.Benefit}")
+            + (item.Metadata.Reference is { } reference ? (_persian ? $"\nمرجع: {reference}" : $"\nReference: {reference}") : string.Empty);
         DetailRestore.Text = _persian ? $"بازیابی: {item.Restore}" : $"Recovery: {item.Restore}";
         DetailCurrent.Text = _persian ? $"وضعیت فعلی: {item.Plan.Current.Value ?? "تنظیم نشده"} • {item.Compatibility}" : $"Current: {item.Plan.Current.Value ?? "not configured"} • {item.Compatibility}";
     }
@@ -307,7 +310,7 @@ public partial class MainWindow : Window
         if (MessageBox.Show(T("Restore the exact original values recorded for this session?", "مقادیر دقیق ثبت‌شده پیش از این نشست بازگردانده شوند؟"), T("Confirm rollback", "تأیید بازیابی"), MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
         await RunBusyAsync("RESTORING ORIGINAL STATE", async () =>
         {
-            var result = await Engine().RollbackAsync(item.Directory, _tweaks);
+            var result = await Engine().RollbackAsync(item.Directory, _rollbackTweaks);
             HeaderState.Text = _persian ? TranslateOperationState(result.State) : result.State.ToString().ToUpperInvariant();
             BackupDetail.Text = T($"Rollback verification: {result.Results.Count(x => x.Success)}/{result.Results.Count} passed.", $"بررسی بازیابی: {result.Results.Count(x => x.Success)} از {result.Results.Count} مورد موفق بود.");
             RefreshHistory();
@@ -325,7 +328,7 @@ public partial class MainWindow : Window
         RootLayout.FlowDirection = _persian ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
         _localization.Apply(RootLayout, _persian);
         LanguageButton.Content = _persian ? "EN" : "فارسی";
-        _profileCpuPriorityCheck.Content = T("Prioritize CPU scheduling for CPU-bound games (High, never Realtime)", "اولویت‌دهی پردازنده برای بازی‌های CPU محور (High؛ هرگز Realtime)");
+        _profileCpuPriorityCheck.Content = T("Raise game priority to Above normal (never High or Realtime; not allowed by some anti-cheat)", "افزایش اولویت بازی به Above normal (هرگز High یا Realtime؛ برخی ضدتقلب‌ها اجازه نمی‌دهند)");
         _cpuBoostButton.Content = T("ATTACH CPU BOOST TO THE RUNNING GAME", "اتصال تقویت پردازنده به بازی در حال اجرا");
         var startupHeaders = _persian ? new[] { "نام", "منبع", "فایل اجرایی" } : new[] { "Name", "Source", "Executable" };
         for (var i = 0; i < StartupGrid.Columns.Count; i++) StartupGrid.Columns[i].Header = startupHeaders[i];
@@ -349,6 +352,7 @@ public partial class MainWindow : Window
         {
             _snapshot ??= await _scanner.ScanAsync();
             var result = await CreateBenchmarkEngine().CaptureAsync(processName, duration, _snapshot);
+            result = result with { IsBaseline = BenchmarkBaselineCheck.IsChecked == true };
             _benchmarkHistory.Insert(0, result);
             await SaveBenchmarkHistoryAsync();
             RefreshBenchmarkDisplay();
@@ -357,11 +361,26 @@ public partial class MainWindow : Window
 
     private void CompareBenchmarks_Click(object sender, RoutedEventArgs e)
     {
-        if (_benchmarkHistory.Count < 2) { MessageBox.Show(T("Capture at least two runs first.", "ابتدا دست‌کم دو اجرای بنچمارک ثبت کنید."), "ProSyS"); return; }
-        var comparison = BenchmarkEngine.Compare(_benchmarkHistory[1], _benchmarkHistory[0]);
-        BenchmarkResultText.Text = _persian
-            ? $"مقایسه دو اجرای آخر\nمیانگین FPS: {comparison.AverageFpsDeltaPercent:+0.0;-0.0;0}%\nیک درصد پایین: {comparison.OnePercentLowDeltaPercent:+0.0;-0.0;0}%\nP99 زمان فریم: {comparison.P99FrameTimeDeltaPercent:+0.0;-0.0;0}%\nاعتبار مقایسه: {comparison.Comparability}\n{comparison.Reason}"
-            : $"LAST TWO RUNS\nAverage FPS: {comparison.AverageFpsDeltaPercent:+0.0;-0.0;0}%\n1% low: {comparison.OnePercentLowDeltaPercent:+0.0;-0.0;0}%\nP99 frame time: {comparison.P99FrameTimeDeltaPercent:+0.0;-0.0;0}%\nComparability: {comparison.Comparability}\n{comparison.Reason}";
+        if (_benchmarkHistory.FirstOrDefault() is not { } latest) { MessageBox.Show(T("Capture benchmark runs first.", "ابتدا اجراهای بنچمارک را ثبت کنید."), "ProSyS"); return; }
+        // Baseline runs (captured with "Baseline run" checked) are compared with the other runs of the same game.
+        var game = _benchmarkHistory.Where(x => x.GameProcess.Equals(latest.GameProcess, StringComparison.OrdinalIgnoreCase)).ToList();
+        var before = game.Where(x => x.IsBaseline).Take(10).ToList();
+        var after = game.Where(x => !x.IsBaseline).Take(10).ToList();
+        var comparison = BenchmarkEngine.CompareSets(before, after);
+        string Verdict(BenchmarkVerdict verdict) => verdict switch
+        {
+            BenchmarkVerdict.Improvement => T("Improvement (95% confidence)", "بهبود (اطمینان ۹۵٪)"),
+            BenchmarkVerdict.Regression => T("REGRESSION (95% confidence)", "افت عملکرد (اطمینان ۹۵٪)"),
+            BenchmarkVerdict.NoSignificantChange => T("No significant change", "تفاوت معناداری نیست"),
+            BenchmarkVerdict.InsufficientRuns => T($"Need at least {BenchmarkEngine.MinimumRunsPerSide} baseline and {BenchmarkEngine.MinimumRunsPerSide} after runs", $"دست‌کم {BenchmarkEngine.MinimumRunsPerSide} اجرای پایه و {BenchmarkEngine.MinimumRunsPerSide} اجرای بعد از تغییر لازم است"),
+            _ => T("Not comparable", "قابل مقایسه نیست")
+        };
+        string Metric(string label, MetricChange? change) => change is null ? string.Empty
+            : $"\n{label}: {change.DeltaPercent:+0.0;-0.0;0}%  [95% CI {change.CiLowPercent:+0.0;-0.0;0}% … {change.CiHighPercent:+0.0;-0.0;0}%]  → {Verdict(change.Verdict)}";
+        BenchmarkResultText.Text = T($"{latest.GameProcess}: {comparison.BeforeRuns} baseline vs {comparison.AfterRuns} after runs", $"{latest.GameProcess}: {comparison.BeforeRuns} اجرای پایه در برابر {comparison.AfterRuns} اجرای بعد")
+            + Metric(T("Average FPS", "میانگین FPS"), comparison.AverageFps)
+            + Metric(T("1% low", "یک درصد پایین"), comparison.OnePercentLowFps)
+            + $"\n{T("Result", "نتیجه")}: {Verdict(comparison.Verdict)}\n{comparison.Reason}";
     }
 
     private async Task LoadBenchmarkHistoryAsync()
@@ -411,8 +430,9 @@ public partial class MainWindow : Window
         var ids = kind switch
         {
             OptimizationProfileKind.Safe => _tweaks.Where(x => new RiskEngine().AllowedInSafeProfile(x.Metadata)).Select(x => x.Metadata.Id).ToArray(),
-            OptimizationProfileKind.Balanced => _tweaks.Where(x => !x.Metadata.Category.Equals("Input", StringComparison.OrdinalIgnoreCase)).Select(x => x.Metadata.Id).ToArray(),
-            _ => _tweaks.Select(x => x.Metadata.Id).ToArray()
+            // Balanced: gaming/capture settings only. Competitive: also input and accessibility shortcuts. Preferences are never part of a game profile.
+            OptimizationProfileKind.Balanced => _tweaks.Where(x => x.Metadata.Category == "Gaming & Capture").Select(x => x.Metadata.Id).ToArray(),
+            _ => _tweaks.Where(x => x.Metadata.Category != "Preferences").Select(x => x.Metadata.Id).ToArray()
         };
         var current = GameProfilesList.SelectedItem as GameProfile;
         var profile = new GameProfile(current?.Id ?? Guid.NewGuid(), name, process, path, kind, ids, ProfileRestoreCheck.IsChecked == true, ProfileOverlayCheck.IsChecked == true, DateTimeOffset.UtcNow, _profileCpuPriorityCheck.IsChecked == true);
@@ -459,13 +479,13 @@ public partial class MainWindow : Window
                 _activeCpuSession = null;
                 GameSessionStatusText.Text = T($"{processName} exited; the per-process CPU policy ended automatically.", $"{processName} بسته شد؛ سیاست پردازنده مخصوص همان پردازش خودکار پایان یافت.");
             });
-            GameSessionStatusText.Text = T($"{processName} CPU mode attached to PID {game.Id}: High priority + Windows priority boost. Realtime is intentionally not used.",
-                $"حالت پردازنده {processName} به پردازش {game.Id} متصل شد: اولویت High و Priority Boost ویندوز فعال است. حالت خطرناک Realtime عمداً استفاده نمی‌شود.");
+            GameSessionStatusText.Text = T($"{processName} (PID {game.Id}) now runs at Above normal priority. High and Realtime are intentionally not used.",
+                $"{processName} (پردازش {game.Id}) اکنون با اولویت Above normal اجرا می‌شود. حالت‌های High و Realtime عمداً استفاده نمی‌شوند.");
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             _activeCpuSession = null;
-            MessageBox.Show(T("Windows did not allow changing the game process priority: ", "ویندوز اجازه تغییر اولویت پردازش بازی را نداد: ") + ex.Message, "ProSyS", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(T("The game's priority was not changed: ", "اولویت بازی تغییر نکرد: ") + ex.Message, "ProSyS", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
@@ -494,20 +514,20 @@ public partial class MainWindow : Window
             catch
             {
                 // The game never appeared: undo the profile changes immediately instead of waiting for an exit that will not come.
-                if (result is not null) await Engine().RollbackAsync(result.BackupDirectory, _tweaks);
+                if (result is not null) await Engine().RollbackAsync(result.BackupDirectory, _rollbackTweaks);
                 throw;
             }
             CpuOptimizationSession? cpuSession = null;
+            var cpuNote = string.Empty;
             if (profile.CpuPriorityEnabled)
             {
-                cpuSession = new ProcessCpuOptimizer().Apply(game);
-                var cpu = cpuSession.SampleCpuPercent();
-                GameSessionStatusText.Text = T($"{profile.Name} attached (PID {game.Id}). CPU priority: High; current normalized CPU: {cpu:F0}%.",
-                    $"{profile.Name} متصل شد (PID {game.Id}). اولویت پردازنده: High؛ مصرف فعلی نرمال‌شده: {cpu:F0}٪.");
+                // A refused priority change (anti-cheat) must not stop the session: the registry profile is already applied.
+                try { cpuSession = new ProcessCpuOptimizer().Apply(game); cpuNote = T(" Priority: Above normal.", " اولویت: Above normal."); }
+                catch (InvalidOperationException ex) { cpuNote = " " + T(ex.Message, "اولویت بازی تغییر نکرد؛ احتمالاً ضدتقلب اجازه نمی‌دهد."); }
             }
             if (profile.OverlayEnabled) ShowOverlay();
             var changed = result?.Results.Count ?? 0;
-            if (!profile.CpuPriorityEnabled) GameSessionStatusText.Text = T($"{profile.Name} is running. {changed} changes verified.", $"{profile.Name} در حال اجراست؛ {changed} تغییر تأیید شد.");
+            GameSessionStatusText.Text = T($"{profile.Name} is running (PID {game.Id}). {changed} changes verified.", $"{profile.Name} در حال اجراست (پردازش {game.Id})؛ {changed} تغییر تأیید شد.") + cpuNote;
             var session = new ActiveGameSession(game, profile.RestoreOnExit ? result?.BackupDirectory : null, cpuSession);
             _activeGameSessions.Add(session);
             game.EnableRaisingEvents = true;
@@ -546,7 +566,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                var rollback = await Engine().RollbackAsync(session.BackupDirectory, _tweaks);
+                var rollback = await Engine().RollbackAsync(session.BackupDirectory, _rollbackTweaks);
                 var prefix = gameExited ? T("Game exited.", "بازی بسته شد.") : T("ProSyS is closing.", "ProSyS در حال بسته‌شدن است.");
                 GameSessionStatusText.Text = prefix + " " + T($"Original state restored: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}; CPU policy restored: {cpuRestored}.", $"وضعیت اصلی بازگردانده شد: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}؛ سیاست پردازنده بازیابی شد: {(cpuRestored ? "بله" : "خیر")}.");
             }
@@ -599,8 +619,8 @@ public partial class MainWindow : Window
             RestorePointStatusText.Text = process.ExitCode switch
             {
                 0 => T("Windows restore point created and verified.", "نقطه بازیابی ویندوز ساخته و تأیید شد."),
-                3 => T("System Protection is turned off for the system drive; enable it in System Properties to create restore points.", "محافظت سیستم برای درایو ویندوز خاموش است؛ برای ساخت نقطه بازیابی آن را در System Properties فعال کنید."),
-                4 => T("Windows did not create a new restore point because one was created in the last 24 hours.", "ویندوز نقطه بازیابی جدیدی نساخت، چون در ۲۴ ساعت گذشته یکی ساخته شده است."),
+                3 => T("Windows did not create a new restore point because one was created in the last 24 hours.", "ویندوز نقطه بازیابی جدیدی نساخت، چون در ۲۴ ساعت گذشته یکی ساخته شده است."),
+                4 => T("System Protection is turned off for the system drive; enable it in System Properties to create restore points.", "محافظت سیستم برای درایو ویندوز خاموش است؛ برای ساخت نقطه بازیابی آن را در System Properties فعال کنید."),
                 _ => T($"Restore point failed (code {process.ExitCode}).", $"ساخت نقطه بازیابی ناموفق بود (کد {process.ExitCode}).")
             };
         }

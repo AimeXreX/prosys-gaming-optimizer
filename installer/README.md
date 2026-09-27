@@ -7,9 +7,9 @@ Releases are built by `.github/workflows/release.yml`. Every push builds the ins
 To build locally:
 
 ```powershell
-./tools/PresentMon/Get-PresentMon.ps1
+./tools/PresentMon/fetch.ps1
 dotnet publish src/ProSyS.App -c Release -r win-x64 --self-contained true -o artifacts/app
-ISCC.exe /DAppVersion=1.1.0 installer\ProSyS.iss
+ISCC.exe /DAppVersion=1.2.0 installer\ProSyS.iss
 ```
 
 Production distribution must sign both executables and the installer with the publisher's Authenticode certificate. No private signing key is stored in this repository. The updater accepts only HTTPS packages whose RSA-PSS signed manifest and SHA-256 package digest both verify.
