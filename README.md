@@ -11,7 +11,7 @@ ProSyS is a local-first Windows 11 gaming diagnostic and optimization applicatio
 - Dry run with no mutation.
 - Exact original-value backup, disk journal, post-apply verification, automatic failure rollback and idempotent manual rollback.
 - Nine-page WPF control center with dashboard, inventory, recommendations, diagnostics, recovery, settings, benchmark, game profiles and an external live overlay.
-- Persian-first RTL and English/LTR interface switching, bundled Vazirmatn typography, local JSON report export and a curated catalog of 15 reversible, current-user Windows 11 settings (gaming & capture, input, accessibility shortcuts and preferences), each mapped to a documented Settings page. Only Game Mode is selected by default; everything else is an explicit opt-in.
+- Persian-first RTL and English/LTR interface switching, bundled Vazirmatn typography, local JSON report export and a curated catalog of 15 reversible, current-user Windows 11 settings (gaming & capture, input, accessibility shortcuts and preferences), each mapped to a documented Settings page. Only Game Mode is selected by default; everything else is an explicit opt-in. FPS-focused options: per-game high-performance GPU, optimizations for windowed games, a high-performance power plan during play and the highest display refresh rate, plus a read-only FPS advisor (battery, refresh rate, single-channel or base-speed memory, GPU scheduling, disk space).
 - Live CPU sampling and a local gateway latency/jitter probe; no remote telemetry or Internet endpoint is contacted.
 - Local CLI; no account, cloud dependency or telemetry.
 - JSON machine-readable scan/audit output and JSONL audit logs.

@@ -1,6 +1,6 @@
 #define AppName "ProSyS Gaming Optimizer"
 #ifndef AppVersion
-  #define AppVersion "1.2.0"
+  #define AppVersion "1.3.0"
 #endif
 #ifndef SourceRoot
   #define SourceRoot "..\artifacts\app"

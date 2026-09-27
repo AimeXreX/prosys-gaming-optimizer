@@ -85,7 +85,8 @@ public sealed class OptimizationEngine
         }
     }
 
-    public async Task<SessionSummary> RollbackAsync(string sessionDirectory, IEnumerable<ITweak> allTweaks, CancellationToken ct = default)
+    /// <param name="resolveUnknown">Rebuilds a tweak that is not in <paramref name="allTweaks"/> from its ID (for example per-game settings).</param>
+    public async Task<SessionSummary> RollbackAsync(string sessionDirectory, IEnumerable<ITweak> allTweaks, CancellationToken ct = default, Func<string, ITweak?>? resolveUnknown = null)
     {
         using var mutationLock = MutationLock.Acquire(_dataRoot);
         var journalPath = Path.Combine(sessionDirectory, "journal.json");
@@ -106,7 +107,8 @@ public sealed class OptimizationEngine
             : backups.Keys.Reverse().ToList();
         foreach (var pair in order.Select(id => new KeyValuePair<string, TweakBackup>(id, backups[id])))
         {
-            if (!byId.TryGetValue(pair.Key, out var tweak))
+            var tweak = byId.GetValueOrDefault(pair.Key) ?? resolveUnknown?.Invoke(pair.Key);
+            if (tweak is null)
             {
                 results.Add(new(pair.Key, false, "The capability is no longer in the catalog; restore this value manually.", null));
                 continue;

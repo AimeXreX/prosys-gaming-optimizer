@@ -21,7 +21,7 @@ Status vocabulary is limited to DONE, PARTIAL, TODO and BLOCKED. DONE means impl
 | External overlay | DONE | topmost click-through external WPF window, Windows CPU/RAM/network counters, no injection or game-memory access | FPS stays in the dedicated PresentMon benchmark to preserve anti-cheat safety |
 | Vendor GPU integration | PARTIAL | official NVAPI/ADL/IGCL runtime capability detection and status reporting | Sensor telemetry appears only when an approved vendor runtime is installed; no undocumented fallback |
 | Installer/updater | PARTIAL | Inno Setup definition supports install/upgrade/repair/uninstall; updater verifies HTTPS, RSA-PSS schema-2 manifest (signed expiry ≤ 90 days, downgrade rejection) and package SHA-256 | Production Authenticode certificate and hosted signed manifest are external release credentials and are not in source control |
-| BIOS/firmware advisor | TODO | — | Advisor only; no firmware writes will be implemented |
+| FPS advisor (incl. BIOS/firmware hints) | DONE | `PerformanceAdvisor`: battery, refresh rate, hybrid GPU, single-channel and base-speed memory (XMP/EXPO hint), GPU scheduling, disk space, Game Mode; shown in Diagnostics and `prosys advise`; decision logic unit-tested | Read-only by design; firmware settings are never written |
 
 ## Verification matrix
 

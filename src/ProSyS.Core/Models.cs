@@ -92,9 +92,14 @@ public sealed record MetricChange(double BeforeMean, double AfterMean, double De
 public sealed record BenchmarkSetComparison(BenchmarkComparability Comparability, string Reason, int BeforeRuns, int AfterRuns,
     MetricChange? AverageFps, MetricChange? OnePercentLowFps, BenchmarkVerdict Verdict);
 
+public enum AdviceSeverity { Info, Suggestion, Important }
+
+/// <summary>A read-only finding about something that limits FPS, with English and Persian text.</summary>
+public sealed record PerformanceAdvice(string Id, AdviceSeverity Severity, string Title, string Detail, string TitleFa, string DetailFa);
+
 public enum OptimizationProfileKind { Safe, Balanced, Competitive, Experimental }
 public sealed record GameProfile(Guid Id, string Name, string GameProcess, string? ExecutablePath, OptimizationProfileKind Profile,
-    IReadOnlyList<string> TweakIds, bool RestoreOnExit, bool OverlayEnabled, DateTimeOffset UpdatedAt, bool CpuPriorityEnabled = false);
+    IReadOnlyList<string> TweakIds, bool RestoreOnExit, bool OverlayEnabled, DateTimeOffset UpdatedAt, bool CpuPriorityEnabled = false, bool HighPerformanceGpu = false);
 
 public interface ITweak
 {

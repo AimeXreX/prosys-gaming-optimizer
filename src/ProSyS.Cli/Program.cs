@@ -11,7 +11,7 @@ var log = new JsonAuditLog(Path.Combine(root, "Logs", "audit.jsonl"));
 
 if (args.Length == 0 || args[0] is "help" or "--help")
 {
-    Console.WriteLine("ProSyS Gaming Optimizer CLI\n\n  scan\n  audit [--json]\n  list-tweaks [--json]\n  recovery list\n  plan\n  optimize --profile safe --confirm\n  restore last\n");
+    Console.WriteLine("ProSyS Gaming Optimizer CLI\n\n  scan\n  audit [--json]\n  advise\n  list-tweaks [--json]\n  recovery list\n  plan\n  optimize --profile safe --confirm\n  restore last\n");
     return;
 }
 
@@ -39,7 +39,10 @@ try
                 foreach (var tweak in tweaks) Console.WriteLine($"{tweak.Metadata.Id,-55} {tweak.Metadata.Category,-24} default={tweak.Metadata.RecommendedByDefault,-5} {tweak.Metadata.Name}");
             }
             break;
-        case "recovery" when args.Length > 1 && args[1].Equals("list", StringComparison.OrdinalIgnoreCase):
+        case "advise":
+        Print(PerformanceAdvisor.Analyze(await scanner.ScanAsync()));
+        break;
+    case "recovery" when args.Length > 1 && args[1].Equals("list", StringComparison.OrdinalIgnoreCase):
             Print(new OptimizationEngine(root, log).FindIncompleteSessions());
             break;
         case "plan":
@@ -74,7 +77,7 @@ try
             var engine = new OptimizationEngine(root, log);
             var latest = engine.FindLatestRestorableSession();
             if (latest is null) { Console.Error.WriteLine("No session with a captured backup exists."); Environment.ExitCode = 2; break; }
-            var summary = await engine.RollbackAsync(latest, TweakCatalog.CreateRollbackCatalog());
+            var summary = await engine.RollbackAsync(latest, TweakCatalog.CreateRollbackCatalog(), default, TweakCatalog.ResolveDynamic);
             Print(summary);
             Environment.ExitCode = summary.State == OperationState.RolledBack ? 0 : 1;
             break;

@@ -85,10 +85,28 @@ public static class TweakCatalog
 
     public static IReadOnlyList<ITweak> CreateSafeTweaks() => CreateTweaks();
 
+    public const string GpuPreferencePrefix = "gaming.gpu-preference:";
+
     /// <summary>The capabilities offered to the user.</summary>
     public static IReadOnlyList<ITweak> CreateTweaks()
     {
         var result = Entries.Select(Create).ToList();
+        result.Add(RegistryTweak.DirectXSetting(Metadata("gaming.graphics.windowed-optimizations", "Optimizations for windowed games", Gaming,
+                "Lets DirectX 10/11 games that run in a window or borderless window use the modern flip presentation model.",
+                "Lower input latency and better frame pacing in borderless/windowed mode, and it enables Auto HDR and variable refresh rate there. Games in exclusive full screen are unaffected.",
+                "Settings › System › Display › Graphics › Change default graphics settings › Optimizations for windowed games", BenefitLevel.Moderate, requiresSignOut: false),
+            "DirectXUserGlobalSettings", "SwapEffectUpgradeEnable", "1",
+            machine => machine.WindowsBuild >= 22621
+                ? new(CompatibilityStatus.Compatible, "Supported on Windows 11 22H2 or newer.")
+                : new(CompatibilityStatus.Unsupported, "Requires Windows 11 22H2 (build 22621) or newer.")));
+        result.Add(new PowerPlanTweak(Metadata("power.plan.high-performance", "High-performance power plan", Gaming,
+            "Switches to the Ultimate Performance or High performance power plan (whichever exists) and restores your plan afterwards.",
+            "Keeps CPU clocks high and avoids aggressive power saving, which mainly helps CPU-bound games and laptops on AC power. Best used inside a game profile so it only applies while you play.",
+            "Control Panel › Hardware and Sound › Power Options", BenefitLevel.Moderate, requiresSignOut: false)));
+        result.Add(new DisplayRefreshTweak(Metadata("display.refresh.maximum", "Highest refresh rate", Gaming,
+            "Sets every connected display to the highest refresh rate it supports at its current resolution.",
+            "A 120–240 Hz monitor left at 60 Hz caps what you see at 60 frames per second no matter how fast the game renders.",
+            "Settings › System › Display › Advanced display › Choose a refresh rate", BenefitLevel.PotentiallyHigh, requiresSignOut: false)));
         if (result.Select(x => x.Metadata.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count)
             throw new InvalidOperationException("Tweak catalog contains duplicate identifiers.");
         return result.AsReadOnly();
@@ -118,6 +136,32 @@ public static class TweakCatalog
         Retired(result, "content", @"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager", dwords: new[] { "ContentDeliveryAllowed", "FeatureManagementEnabled", "OemPreInstalledAppsEnabled", "PreInstalledAppsEnabled", "PreInstalledAppsEverEnabled", "SilentInstalledAppsEnabled", "SoftLandingEnabled", "SubscribedContentEnabled", "SystemPaneSuggestionsEnabled", "RotatingLockScreenEnabled", "RotatingLockScreenOverlayEnabled", "RemediationRequired", "SubscribedContent-310093Enabled", "SubscribedContent-338388Enabled", "SubscribedContent-338389Enabled", "SubscribedContent-338393Enabled", "SubscribedContent-353694Enabled", "SubscribedContent-353696Enabled" }, strings: Array.Empty<string>());
         return result.Where((x, i) => i < offered.Count || !offered.Contains(x.Metadata.Id)).ToList().AsReadOnly();
     }
+
+    /// <summary>
+    /// "Use the high-performance GPU" for one game executable (laptops with integrated and dedicated graphics).
+    /// The executable path is part of the ID so a backup can be restored without the game profile.
+    /// </summary>
+    public static ITweak CreateGpuPreferenceTweak(string executablePath)
+    {
+        var path = Path.GetFullPath(executablePath);
+        var metadata = Metadata(GpuPreferencePrefix + path, $"High-performance GPU for {Path.GetFileName(path)}", Gaming,
+            "Tells Windows to run this game on the high-performance (dedicated) GPU.",
+            "On laptops with integrated and dedicated graphics a game can end up on the slower integrated GPU; this is often the largest single FPS gain available.",
+            "Settings › System › Display › Graphics › (app) › Options › High performance", BenefitLevel.PotentiallyHigh, requiresSignOut: false);
+        return RegistryTweak.DirectXSetting(metadata, path, "GpuPreference", "2",
+            machine => machine.Gpus.Count >= 2
+                ? new(CompatibilityStatus.Compatible, "More than one GPU is present.")
+                : new(CompatibilityStatus.Unsupported, "Only one GPU is present; there is nothing to choose."));
+    }
+
+    /// <summary>Rebuilds tweaks whose identity is encoded in their ID (per-game GPU preferences) so any backup can be restored.</summary>
+    public static ITweak? ResolveDynamic(string id) =>
+        id.StartsWith(GpuPreferencePrefix, StringComparison.OrdinalIgnoreCase) ? CreateGpuPreferenceTweak(id[GpuPreferencePrefix.Length..]) : null;
+
+    private static TweakMetadata Metadata(string id, string name, string category, string description, string why, string reference, BenefitLevel benefit, bool requiresSignOut) =>
+        new(id, 1, name, description, category, why, new RiskProfile(RiskLevel.Low, 1, 1, 0, 0, 1, Reversibility.Easy, Confidence.High), benefit,
+            EvidenceType.OfficialDocumentation, false, requiresSignOut, false, false, false, new[] { "Windows 11 22000+" },
+            Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), "Restore the exact original setting.", "2026-09-27", false, reference);
 
     public static string IdFor(string groupId, string valueName) => $"{groupId}.{Regex.Replace(valueName, "[^A-Za-z0-9]+", "-").Trim('-').ToLowerInvariant()}";
 
