@@ -50,7 +50,7 @@ public sealed class RegistryTweak : ITweak
             using var key = Registry.CurrentUser.OpenSubKey(_subKey, false);
             var value = key?.GetValue(_valueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
             var compliant = value is not null && string.Equals(ValueText.Canonical(value), ValueText.Canonical(_recommended), StringComparison.Ordinal);
-            return Task.FromResult(new DetectionResult(compliant ? DetectionStatus.Compliant : DetectionStatus.Enabled,
+            return Task.FromResult(new DetectionResult(compliant ? DetectionStatus.Compliant : DetectionStatus.NonCompliant,
                 value, $"HKCU\\{_subKey}\\{_valueName}", Confidence.Verified, DateTimeOffset.UtcNow,
                 compliant ? "Recommended state is already applied." : "A reversible user-level change is available."));
         }
@@ -70,7 +70,7 @@ public sealed class RegistryTweak : ITweak
         var existed = names.Contains(_valueName, StringComparer.OrdinalIgnoreCase);
         var original = existed ? key!.GetValue(_valueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames) : null;
         var kind = existed ? key!.GetValueKind(_valueName).ToString() : RegistryValueKind.None.ToString();
-        return Task.FromResult(new TweakBackup(Metadata.Id, existed, original, kind, DateTimeOffset.UtcNow));
+        return Task.FromResult(new TweakBackup(Metadata.Id, existed, original, kind, DateTimeOffset.UtcNow, key is null ? FindMissingKeyPath(_subKey) : null));
     }
 
     public Task ApplyAsync(CancellationToken cancellationToken = default)
@@ -84,21 +84,56 @@ public sealed class RegistryTweak : ITweak
 
     public Task RollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default)
     {
+        if (!backup.ValueExisted)
+        {
+            using (var existing = Registry.CurrentUser.OpenSubKey(_subKey, true)) existing?.DeleteValue(_valueName, false);
+            RemoveCreatedKeys(backup.MissingKeyPath);
+            return Task.CompletedTask;
+        }
         using var key = Registry.CurrentUser.CreateSubKey(_subKey, true);
-        if (!backup.ValueExisted) key.DeleteValue(_valueName, false);
-        else key.SetValue(_valueName, ConvertBackupValue(backup), Enum.Parse<RegistryValueKind>(backup.ValueKind));
+        key.SetValue(_valueName, ConvertBackupValue(backup), Enum.Parse<RegistryValueKind>(backup.ValueKind));
         return Task.CompletedTask;
     }
 
-    public Task<DetectionResult> VerifyRollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default) => ReadRawAsync();
-
-    private Task<DetectionResult> ReadRawAsync()
+    public Task<DetectionResult> VerifyRollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default)
     {
         using var key = Registry.CurrentUser.OpenSubKey(_subKey, false);
         var exists = key?.GetValueNames().Contains(_valueName, StringComparer.OrdinalIgnoreCase) == true;
         var value = exists ? key!.GetValue(_valueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames) : null;
-        return Task.FromResult(new DetectionResult(exists ? DetectionStatus.Enabled : DetectionStatus.Unknown, value,
-            $"HKCU\\{_subKey}\\{_valueName}", Confidence.Verified, DateTimeOffset.UtcNow));
+        var source = $"HKCU\\{_subKey}\\{_valueName}";
+        if (!exists) return Task.FromResult(new DetectionResult(DetectionStatus.Absent, null, source, Confidence.Verified, DateTimeOffset.UtcNow));
+        var kind = key!.GetValueKind(_valueName).ToString();
+        var sameKind = !backup.ValueExisted || kind == backup.ValueKind;
+        return Task.FromResult(new DetectionResult(sameKind ? DetectionStatus.Present : DetectionStatus.NonCompliant, value, source, Confidence.Verified, DateTimeOffset.UtcNow,
+            sameKind ? null : $"Registry type is {kind}; the original type was {backup.ValueKind}."));
+    }
+
+    /// <summary>Returns the highest ancestor of <paramref name="subKey"/> that does not exist yet.</summary>
+    private static string? FindMissingKeyPath(string subKey)
+    {
+        var parts = subKey.Split('\\');
+        for (var i = 1; i <= parts.Length; i++)
+        {
+            var path = string.Join('\\', parts[..i]);
+            using var key = Registry.CurrentUser.OpenSubKey(path, false);
+            if (key is null) return path;
+        }
+        return null;
+    }
+
+    /// <summary>Deletes keys created by apply, deepest first, stopping at the first key that still has content.</summary>
+    private void RemoveCreatedKeys(string? missingKeyPath)
+    {
+        if (missingKeyPath is null || !(_subKey.Equals(missingKeyPath, StringComparison.OrdinalIgnoreCase) || _subKey.StartsWith(missingKeyPath + "\\", StringComparison.OrdinalIgnoreCase))) return;
+        var path = _subKey;
+        while (true)
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(path, false))
+                if (key is not null && (key.SubKeyCount > 0 || key.ValueCount > 0)) return;
+            Registry.CurrentUser.DeleteSubKey(path, false);
+            if (path.Length <= missingKeyPath.Length) return;
+            path = path[..path.LastIndexOf('\\')];
+        }
     }
 
     public static object ConvertBackupValue(TweakBackup backup)
@@ -107,8 +142,9 @@ public sealed class RegistryTweak : ITweak
         if (backup.OriginalValue is System.Text.Json.JsonElement element)
             return kind switch
             {
-                RegistryValueKind.DWord => element.GetInt32(),
-                RegistryValueKind.QWord => element.GetInt64(),
+                // Values above int/long.MaxValue can appear in hand-edited or migrated backups; keep the exact bit pattern.
+                RegistryValueKind.DWord => element.TryGetInt32(out var dword) ? dword : unchecked((int)element.GetUInt32()),
+                RegistryValueKind.QWord => element.TryGetInt64(out var qword) ? qword : unchecked((long)element.GetUInt64()),
                 RegistryValueKind.Binary => element.GetBytesFromBase64(),
                 RegistryValueKind.MultiString => element.EnumerateArray().Select(x => x.GetString() ?? string.Empty).ToArray(),
                 RegistryValueKind.String or RegistryValueKind.ExpandString => element.GetString() ?? string.Empty,

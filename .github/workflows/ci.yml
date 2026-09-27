@@ -18,7 +18,7 @@ jobs:
           dotnet-version: 8.0.x
       - name: Fetch and verify PresentMon
         shell: pwsh
-        run: ./tools/PresentMon/Get-PresentMon.ps1
+        run: ./tools/PresentMon/fetch.ps1
       - name: Build
         run: dotnet build ProSyS.sln -c Release
       - name: Test

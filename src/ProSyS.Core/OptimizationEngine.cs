@@ -13,6 +13,7 @@ public sealed class OptimizationEngine
         var byId = allTweaks.ToDictionary(x => x.Metadata.Id, StringComparer.OrdinalIgnoreCase);
         ValidatePlan(plan, byId);
         var selected = new DependencyPlanner().Order(plan.Tweaks.Where(x => x.Selected).Select(x => byId[x.TweakId])).ToList();
+        using var mutationLock = MutationLock.Acquire(_dataRoot);
         await EnsurePlanIsCurrentAsync(plan, selected, ct);
         var sessionId = Guid.NewGuid();
         var folder = Path.Combine(_dataRoot, "Backups", sessionId.ToString("N"));
@@ -34,6 +35,8 @@ public sealed class OptimizationEngine
 
             foreach (var tweak in selected)
             {
+                // Recorded before the write so a crash mid-apply still lists this item for rollback.
+                journal.AppliedOrder.Add(tweak.Metadata.Id);
                 journal = journal with { State = OperationState.Applying };
                 await SaveJournalAsync(folder, journal, ct);
                 await tweak.ApplyAsync(ct);
@@ -59,7 +62,8 @@ public sealed class OptimizationEngine
             journal = journal with { State = OperationState.RollbackPending, Error = ex.Message };
             await SaveJournalAsync(folder, journal, ct);
             var recoveryRequired = false;
-            foreach (var tweak in selected.AsEnumerable().Reverse())
+            var applied = journal.AppliedOrder.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var tweak in selected.Where(x => applied.Contains(x.Metadata.Id)).Reverse())
                 if (backups.TryGetValue(tweak.Metadata.Id, out var backup))
                     try
                     {
@@ -83,6 +87,12 @@ public sealed class OptimizationEngine
 
     public async Task<SessionSummary> RollbackAsync(string sessionDirectory, IEnumerable<ITweak> allTweaks, CancellationToken ct = default)
     {
+        using var mutationLock = MutationLock.Acquire(_dataRoot);
+        var journalPath = Path.Combine(sessionDirectory, "journal.json");
+        var sessionId = Guid.TryParse(Path.GetFileName(sessionDirectory), out var parsed) ? parsed : Guid.Empty;
+        SessionJournal? existing = null;
+        try { existing = JsonSerializer.Deserialize<SessionJournal>(await File.ReadAllTextAsync(journalPath, ct)); }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { }
         var backupPath = Path.Combine(sessionDirectory, "backups.json");
         // Values are only changed after backups.json is written, so a session without it changed nothing and can simply be closed.
         var backups = File.Exists(backupPath)
@@ -90,7 +100,11 @@ public sealed class OptimizationEngine
             : new Dictionary<string, TweakBackup>();
         var byId = allTweaks.ToDictionary(x => x.Metadata.Id, StringComparer.OrdinalIgnoreCase);
         var results = new List<TweakExecutionResult>();
-        foreach (var pair in backups.Reverse())
+        // Undo in reverse application order; journals written before AppliedOrder existed fall back to backup order.
+        var order = existing?.AppliedOrder is { Count: > 0 } appliedOrder
+            ? appliedOrder.Where(backups.ContainsKey).Reverse().ToList()
+            : backups.Keys.Reverse().ToList();
+        foreach (var pair in order.Select(id => new KeyValuePair<string, TweakBackup>(id, backups[id])))
         {
             if (!byId.TryGetValue(pair.Key, out var tweak))
             {
@@ -107,11 +121,7 @@ public sealed class OptimizationEngine
             catch (Exception ex) { results.Add(new(pair.Key, false, "Rollback failed: " + ex.Message, null)); }
         }
         var state = results.All(x => x.Success) ? OperationState.RolledBack : OperationState.RecoveryRequired;
-        var sessionId = Guid.TryParse(Path.GetFileName(sessionDirectory), out var parsed) ? parsed : Guid.Empty;
-        var journalPath = Path.Combine(sessionDirectory, "journal.json");
-        SessionJournal journal;
-        try { journal = JsonSerializer.Deserialize<SessionJournal>(await File.ReadAllTextAsync(journalPath, CancellationToken.None)) ?? throw new InvalidDataException(); }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidDataException) { journal = new(sessionId, Guid.Empty, state, DateTimeOffset.UtcNow, new()); }
+        var journal = existing ?? new(sessionId, Guid.Empty, state, DateTimeOffset.UtcNow, new());
         journal.Results.AddRange(results);
         await SaveJournalAsync(sessionDirectory, journal with { State = state, Error = state == OperationState.RolledBack ? null : "Manual rollback could not verify every value." }, CancellationToken.None);
         await _log.WriteAsync(new { correlationId = sessionId, operation = "manual-rollback", result = state.ToString() }, CancellationToken.None);
@@ -191,8 +201,9 @@ public sealed class OptimizationEngine
 
     private static bool BackupMatches(TweakBackup backup, DetectionResult verification)
     {
-        if (!backup.ValueExisted) return verification.Status == DetectionStatus.Unknown && verification.Value is null;
-        return string.Equals(ValueText.Canonical(backup.OriginalValue, backup.ValueKind), ValueText.Canonical(verification.Value, backup.ValueKind), StringComparison.Ordinal);
+        if (!backup.ValueExisted) return verification.Status == DetectionStatus.Absent && verification.Value is null;
+        // Present means the value exists with the original registry type; a type change reports NonCompliant.
+        return verification.Status == DetectionStatus.Present && string.Equals(ValueText.Canonical(backup.OriginalValue, backup.ValueKind), ValueText.Canonical(verification.Value, backup.ValueKind), StringComparison.Ordinal);
     }
 
     internal static async Task WriteJsonAtomicAsync<T>(string path, T value, CancellationToken ct)
@@ -207,7 +218,11 @@ public sealed class OptimizationEngine
         File.Move(temp, path, true);
     }
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private sealed record SessionJournal(Guid SessionId, Guid PlanId, OperationState State, DateTimeOffset CreatedAt, List<TweakExecutionResult> Results, string? Error = null);
+    private sealed record SessionJournal(Guid SessionId, Guid PlanId, OperationState State, DateTimeOffset CreatedAt, List<TweakExecutionResult> Results, string? Error = null)
+    {
+        /// <summary>Tweak ids in the order they were (about to be) applied.</summary>
+        public List<string> AppliedOrder { get; init; } = new();
+    }
 }
 
 public sealed record RecoverySession(string Directory, Guid SessionId, OperationState State, DateTimeOffset CreatedAt, string? Error);

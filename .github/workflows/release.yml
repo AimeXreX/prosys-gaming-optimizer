@@ -48,7 +48,7 @@ jobs:
 
       - name: Fetch and verify PresentMon
         shell: pwsh
-        run: ./tools/PresentMon/Get-PresentMon.ps1
+        run: ./tools/PresentMon/fetch.ps1
 
       - name: Test
         run: dotnet test tests/ProSyS.Tests -c Release -p:Version=${{ steps.version.outputs.value }}

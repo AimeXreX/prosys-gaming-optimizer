@@ -12,13 +12,13 @@
     <Content Include="Assets\Fonts\OFL.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
   </ItemGroup>
   <ItemGroup>
-    <!-- The Intel binary is not committed; run tools/PresentMon/Get-PresentMon.ps1 to download and hash-verify it. -->
+    <!-- The Intel binary is not committed; run tools/PresentMon/fetch.ps1 to download and hash-verify it. -->
     <Content Include="..\..\tools\PresentMon\2.6.0\PresentMon.exe" Condition="Exists('..\..\tools\PresentMon\2.6.0\PresentMon.exe')" Link="Tools\PresentMon\PresentMon.exe"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
     <Content Include="..\..\tools\PresentMon\manifest.json" Link="Tools\PresentMon\manifest.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
     <Content Include="..\..\tools\PresentMon\LICENSE.txt" Link="Tools\PresentMon\LICENSE.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
   </ItemGroup>
   <Target Name="WarnMissingPresentMon" BeforeTargets="Build" Condition="!Exists('..\..\tools\PresentMon\2.6.0\PresentMon.exe')">
-    <Warning Code="PROSYS001" Text="PresentMon 2.6.0 is not present; benchmarking will be unavailable. Run tools/PresentMon/Get-PresentMon.ps1 before building a release." />
+    <Warning Code="PROSYS001" Text="PresentMon 2.6.0 is not present; benchmarking will be unavailable. Run tools/PresentMon/fetch.ps1 before building a release." />
   </Target>
   <Target Name="CopyPrivilegedHelper" AfterTargets="Build">
     <!-- Copy the helper together with its dependencies (System.Management and its runtime assets). -->

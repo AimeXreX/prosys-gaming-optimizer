@@ -7,6 +7,6 @@ artifacts/
 .tools/
 dotnet-install.ps1
 
-# Third-party binary fetched and hash-verified by tools/PresentMon/Get-PresentMon.ps1
+# Third-party binary fetched and hash-verified by tools/PresentMon/fetch.ps1
 tools/PresentMon/*/PresentMon.exe
 tools/PresentMon/*/*.download
