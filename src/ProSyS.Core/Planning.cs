@@ -6,13 +6,18 @@ namespace ProSyS.Core;
 
 public sealed class RiskEngine
 {
+    /// <summary>
+    /// Safe means low risk, easily reversible and backed by evidence. Legacy/experimental/unknown evidence
+    /// and plain preference changes (not recommended by default) are never part of the Safe profile.
+    /// </summary>
     public bool AllowedInSafeProfile(TweakMetadata metadata) =>
+        metadata.RecommendedByDefault &&
         metadata.Risk.Level <= RiskLevel.Low &&
         metadata.Risk.SecurityImpact == 0 &&
         metadata.Risk.StabilityRisk <= 1 &&
         metadata.Risk.Reversibility == Reversibility.Easy &&
         !metadata.AffectsSecurity &&
-        metadata.Evidence is not (EvidenceType.Experimental or EvidenceType.Unknown);
+        metadata.Evidence is not (EvidenceType.Experimental or EvidenceType.Unknown or EvidenceType.Legacy);
 }
 
 public sealed class DependencyPlanner
@@ -59,9 +64,9 @@ public sealed class PlanFactory
         {
             var detection = await tweak.DetectAsync(ct);
             var compatibility = await tweak.EvaluateCompatibilityAsync(snapshot, ct);
-            var selected = tweak.Metadata.RecommendedByDefault && compatibility.Status == CompatibilityStatus.Compatible && detection.Status != DetectionStatus.Disabled;
+            var selected = tweak.Metadata.RecommendedByDefault && compatibility.Status == CompatibilityStatus.Compatible && detection.Status != DetectionStatus.Compliant;
             items.Add(new(tweak.Metadata.Id, tweak.Metadata.Name, detection, compatibility, tweak.Metadata.Risk,
-                tweak.Metadata.Benefit, selected, $"Set {tweak.Metadata.Name} to the recommended state"));
+                tweak.Metadata.Benefit, selected, $"Set {tweak.Metadata.Name} to the recommended state" + (tweak.Metadata.RequiresSignOut ? " (takes effect after sign-out)" : "")));
         }
         var id = Guid.NewGuid();
         var created = DateTimeOffset.UtcNow;
@@ -75,7 +80,7 @@ public sealed class PlanFactory
         var created = DateTimeOffset.UtcNow;
         var items = source.Tweaks.Select(x => x with
         {
-            Selected = selectedIds.Contains(x.TweakId) && x.Compatibility.Status == CompatibilityStatus.Compatible && x.Current.Status != DetectionStatus.Disabled
+            Selected = selectedIds.Contains(x.TweakId) && x.Compatibility.Status == CompatibilityStatus.Compatible && x.Current.Status != DetectionStatus.Compliant
         }).ToList();
         return new(id, created, source.MachineSnapshotId, items.AsReadOnly(), ComputeHash(id, created, source.MachineSnapshotId, items));
     }

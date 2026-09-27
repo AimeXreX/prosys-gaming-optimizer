@@ -1,0 +1,96 @@
+name: Release
+
+# Builds a self-contained Windows installer and a portable ZIP on every push (downloadable as a workflow artifact).
+# A GitHub Release is published when:
+#   - main is pushed with a <Version> in Directory.Build.props that has no release yet, or
+#   - a tag such as v1.1.0 is pushed, or
+#   - the workflow is run manually with a version.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the v prefix (for example 1.1.0); empty uses Directory.Build.props'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ github.event.inputs.version }}'
+          if ('${{ github.ref_type }}' -eq 'tag') { $version = '${{ github.ref_name }}'.TrimStart('v') }
+          if (-not $version) { $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version '$version'." }
+          "value=$version" >> $env:GITHUB_OUTPUT
+          $publish = '${{ github.ref_type }}' -eq 'tag' -or '${{ github.event_name }}' -eq 'workflow_dispatch'
+          if ('${{ github.ref }}' -eq 'refs/heads/main') {
+            gh release view "v$version" --repo '${{ github.repository }}' 2>$null | Out-Null
+            $publish = $LASTEXITCODE -ne 0
+            $global:LASTEXITCODE = 0
+          }
+          "publish=$($publish.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Fetch and verify PresentMon
+        shell: pwsh
+        run: ./tools/PresentMon/Get-PresentMon.ps1
+
+      - name: Test
+        run: dotnet test tests/ProSyS.Tests -c Release -p:Version=${{ steps.version.outputs.value }}
+
+      - name: Publish self-contained app
+        run: dotnet publish src/ProSyS.App -c Release -r win-x64 --self-contained true -p:Version=${{ steps.version.outputs.value }} -o artifacts/app
+
+      - name: Verify published payload
+        shell: pwsh
+        run: |
+          foreach ($file in 'ProSyS.App.exe', 'Tools/PresentMon/PresentMon.exe', 'ProSyS.PrivilegedHelper.exe', 'System.Management.dll', 'coreclr.dll') {
+            if (-not (Test-Path (Join-Path 'artifacts/app' $file))) { throw "Missing $file in the published app." }
+          }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe', 'C:\Program Files\Inno Setup 6\ISCC.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) { choco install innosetup -y --no-progress | Out-Null; $iscc = Get-Item 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' }
+          & $iscc.FullName "/DAppVersion=${{ steps.version.outputs.value }}" "/DSourceRoot=$PWD\artifacts\app" installer\ProSyS.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+
+      - name: Package portable ZIP and checksums
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.value }}'
+          Compress-Archive -Path artifacts/app/* -DestinationPath "artifacts/installer/ProSyS-Gaming-Optimizer-$v-Portable-x64.zip"
+          $files = @(Get-ChildItem artifacts/installer -File)
+          $files | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content artifacts/installer/SHA256SUMS.txt
+
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProSyS-Gaming-Optimizer-${{ steps.version.outputs.value }}
+          path: artifacts/installer/*
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.value }}
+          target_commitish: ${{ github.sha }}
+          name: ProSyS Gaming Optimizer ${{ steps.version.outputs.value }}
+          body_path: installer/RELEASE_NOTES.md
+          files: artifacts/installer/*

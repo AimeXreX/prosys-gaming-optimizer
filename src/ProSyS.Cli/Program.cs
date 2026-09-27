@@ -15,67 +15,80 @@ if (args.Length == 0 || args[0] is "help" or "--help")
     return;
 }
 
-switch (args[0].ToLowerInvariant())
+try
 {
-    case "scan":
-        Print(await scanner.ScanAsync());
-        break;
-    case "audit":
+    switch (args[0].ToLowerInvariant())
     {
-        var snapshot = await scanner.ScanAsync();
-        var plan = await new PlanFactory().CreateAsync(snapshot, tweaks);
-        if (args.Contains("--json", StringComparer.OrdinalIgnoreCase)) Print(new { snapshot, plan });
-        else PrintPlan(plan);
-        break;
-    }
-    case "list-tweaks":
-        if (args.Contains("--json", StringComparer.OrdinalIgnoreCase))
-            Print(tweaks.Select(x => x.Metadata));
-        else
+        case "scan":
+            Print(await scanner.ScanAsync());
+            break;
+        case "audit":
         {
-            Console.WriteLine($"{tweaks.Count} reversible capabilities across {tweaks.Select(x => x.Metadata.Category).Distinct().Count()} categories.");
-            foreach (var tweak in tweaks) Console.WriteLine($"{tweak.Metadata.Id,-55} {tweak.Metadata.Category,-24} default={tweak.Metadata.RecommendedByDefault,-5} {tweak.Metadata.Name}");
-        }
-        break;
-    case "recovery" when args.Length > 1 && args[1].Equals("list", StringComparison.OrdinalIgnoreCase):
-        Print(new OptimizationEngine(root, log).FindIncompleteSessions());
-        break;
-    case "plan":
-    {
-        var plan = await new PlanFactory().CreateAsync(await scanner.ScanAsync(), tweaks);
-        PrintPlan(plan);
-        break;
-    }
-    case "optimize":
-    {
-        var profileIndex = Array.FindIndex(args, x => x.Equals("--profile", StringComparison.OrdinalIgnoreCase));
-        var safeProfile = profileIndex >= 0 && profileIndex + 1 < args.Length && args[profileIndex + 1].Equals("safe", StringComparison.OrdinalIgnoreCase);
-        if (!safeProfile || !args.Contains("--confirm", StringComparer.OrdinalIgnoreCase))
-        {
-            Console.Error.WriteLine("No changes made. Review `prosys plan`, then repeat with --profile safe --confirm.");
-            Environment.ExitCode = 2;
+            var snapshot = await scanner.ScanAsync();
+            var plan = await new PlanFactory().CreateAsync(snapshot, tweaks);
+            if (args.Contains("--json", StringComparer.OrdinalIgnoreCase)) Print(new { snapshot, plan });
+            else PrintPlan(plan);
             break;
         }
-        var snapshot = await scanner.ScanAsync();
-        var safe = tweaks.Where(x => new RiskEngine().AllowedInSafeProfile(x.Metadata)).ToList();
-        var plan = await new PlanFactory().CreateAsync(snapshot, safe);
-        var summary = await new OptimizationEngine(root, log).ExecuteAsync(plan, safe);
-        Print(summary);
-        Environment.ExitCode = summary.State == OperationState.Completed ? 0 : 1;
-        break;
+        case "list-tweaks":
+            if (args.Contains("--json", StringComparer.OrdinalIgnoreCase))
+                Print(tweaks.Select(x => x.Metadata));
+            else
+            {
+                Console.WriteLine($"{tweaks.Count} reversible capabilities across {tweaks.Select(x => x.Metadata.Category).Distinct().Count()} categories.");
+                foreach (var tweak in tweaks) Console.WriteLine($"{tweak.Metadata.Id,-55} {tweak.Metadata.Category,-24} default={tweak.Metadata.RecommendedByDefault,-5} {tweak.Metadata.Name}");
+            }
+            break;
+        case "recovery" when args.Length > 1 && args[1].Equals("list", StringComparison.OrdinalIgnoreCase):
+            Print(new OptimizationEngine(root, log).FindIncompleteSessions());
+            break;
+        case "plan":
+        {
+            var plan = await new PlanFactory().CreateAsync(await scanner.ScanAsync(), tweaks);
+            PrintPlan(plan);
+            break;
+        }
+        case "optimize":
+        {
+            var profileIndex = Array.FindIndex(args, x => x.Equals("--profile", StringComparison.OrdinalIgnoreCase));
+            var safeProfile = profileIndex >= 0 && profileIndex + 1 < args.Length && args[profileIndex + 1].Equals("safe", StringComparison.OrdinalIgnoreCase);
+            if (!safeProfile || !args.Contains("--confirm", StringComparer.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine("No changes made. Review `prosys plan`, then repeat with --profile safe --confirm.");
+                Environment.ExitCode = 2;
+                break;
+            }
+            var snapshot = await scanner.ScanAsync();
+            var safe = tweaks.Where(x => new RiskEngine().AllowedInSafeProfile(x.Metadata)).ToList();
+            var plan = await new PlanFactory().CreateAsync(snapshot, safe);
+            if (!plan.Tweaks.Any(x => x.Selected)) { Console.WriteLine("Nothing to change: every Safe capability is already in its recommended state."); break; }
+            var summary = await new OptimizationEngine(root, log).ExecuteAsync(plan, safe);
+            Print(summary);
+            if (summary.State == OperationState.Completed && safe.Any(x => x.Metadata.RequiresSignOut && plan.Tweaks.Any(p => p.Selected && p.TweakId == x.Metadata.Id)))
+                Console.WriteLine("Some changes take effect after you sign out and back in.");
+            Environment.ExitCode = summary.State == OperationState.Completed ? 0 : 1;
+            break;
+        }
+        case "restore" when args.Length > 1 && args[1].Equals("last", StringComparison.OrdinalIgnoreCase):
+        {
+            var engine = new OptimizationEngine(root, log);
+            var latest = engine.FindLatestRestorableSession();
+            if (latest is null) { Console.Error.WriteLine("No session with a captured backup exists."); Environment.ExitCode = 2; break; }
+            var summary = await engine.RollbackAsync(latest, tweaks);
+            Print(summary);
+            Environment.ExitCode = summary.State == OperationState.RolledBack ? 0 : 1;
+            break;
+        }
+        default:
+            Console.Error.WriteLine("Unknown command. Run with --help.");
+            Environment.ExitCode = 2;
+            break;
     }
-    case "restore" when args.Length > 1 && args[1].Equals("last", StringComparison.OrdinalIgnoreCase):
-    {
-        var backupRoot = Path.Combine(root, "Backups");
-        var latest = Directory.Exists(backupRoot) ? new DirectoryInfo(backupRoot).GetDirectories().OrderByDescending(x => x.LastWriteTimeUtc).FirstOrDefault()?.FullName : null;
-        if (latest is null) { Console.Error.WriteLine("No backup session exists."); Environment.ExitCode = 2; break; }
-        Print(await new OptimizationEngine(root, log).RollbackAsync(latest, tweaks));
-        break;
-    }
-    default:
-        Console.Error.WriteLine("Unknown command. Run with --help.");
-        Environment.ExitCode = 2;
-        break;
+}
+catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+{
+    Console.Error.WriteLine(ex.Message);
+    Environment.ExitCode = 1;
 }
 
 static void Print(object value) => Console.WriteLine(JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));

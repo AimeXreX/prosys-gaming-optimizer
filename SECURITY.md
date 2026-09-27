@@ -6,7 +6,7 @@ MVP mitigations:
 
 - no elevated GUI, shell execution for mutation, imported executable content, telemetry or network communication;
 - compile-time tweak catalog and constructor-enforced HKCU gaming-settings allowlist;
-- backup before mutation, immutable-plan hash validation, verification after mutation and read-back verification after automatic rollback;
+- backup before mutation, plan hash (integrity) validation, stale-plan re-detection, verification after mutation and read-back verification after automatic rollback;
 - audit logs exclude usernames, IP addresses, secrets and full machine identifiers;
 - machine name is stored only as a truncated SHA-256 derivative.
 

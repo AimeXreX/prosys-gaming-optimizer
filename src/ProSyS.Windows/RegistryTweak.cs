@@ -49,8 +49,8 @@ public sealed class RegistryTweak : ITweak
         {
             using var key = Registry.CurrentUser.OpenSubKey(_subKey, false);
             var value = key?.GetValue(_valueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-            var compliant = value is not null && string.Equals(value.ToString(), _recommended.ToString(), StringComparison.Ordinal);
-            return Task.FromResult(new DetectionResult(compliant ? DetectionStatus.Disabled : DetectionStatus.Enabled,
+            var compliant = value is not null && string.Equals(ValueText.Canonical(value), ValueText.Canonical(_recommended), StringComparison.Ordinal);
+            return Task.FromResult(new DetectionResult(compliant ? DetectionStatus.Compliant : DetectionStatus.Enabled,
                 value, $"HKCU\\{_subKey}\\{_valueName}", Confidence.Verified, DateTimeOffset.UtcNow,
                 compliant ? "Recommended state is already applied." : "A reversible user-level change is available."));
         }
@@ -90,11 +90,7 @@ public sealed class RegistryTweak : ITweak
         return Task.CompletedTask;
     }
 
-    public async Task<DetectionResult> VerifyRollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default)
-    {
-        var result = await ReadRawAsync();
-        return result;
-    }
+    public Task<DetectionResult> VerifyRollbackAsync(TweakBackup backup, CancellationToken cancellationToken = default) => ReadRawAsync();
 
     private Task<DetectionResult> ReadRawAsync()
     {
@@ -105,15 +101,19 @@ public sealed class RegistryTweak : ITweak
             $"HKCU\\{_subKey}\\{_valueName}", Confidence.Verified, DateTimeOffset.UtcNow));
     }
 
-    private static object ConvertBackupValue(TweakBackup backup)
+    public static object ConvertBackupValue(TweakBackup backup)
     {
+        var kind = Enum.Parse<RegistryValueKind>(backup.ValueKind);
         if (backup.OriginalValue is System.Text.Json.JsonElement element)
-            return backup.ValueKind switch
+            return kind switch
             {
-                nameof(RegistryValueKind.DWord) => element.GetInt32(),
-                nameof(RegistryValueKind.QWord) => element.GetInt64(),
-                _ => element.GetString() ?? string.Empty
+                RegistryValueKind.DWord => element.GetInt32(),
+                RegistryValueKind.QWord => element.GetInt64(),
+                RegistryValueKind.Binary => element.GetBytesFromBase64(),
+                RegistryValueKind.MultiString => element.EnumerateArray().Select(x => x.GetString() ?? string.Empty).ToArray(),
+                RegistryValueKind.String or RegistryValueKind.ExpandString => element.GetString() ?? string.Empty,
+                _ => throw new NotSupportedException($"Registry value kind {kind} cannot be restored automatically.")
             };
-        return backup.OriginalValue ?? string.Empty;
+        return backup.OriginalValue ?? throw new InvalidDataException("The backup does not contain the original value.");
     }
 }

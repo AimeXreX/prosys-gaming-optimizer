@@ -41,10 +41,20 @@ public sealed class BenchmarkEngine
         var start = new ProcessStartInfo(_presentMonPath) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true };
         foreach (var argument in new[] { "--process_name", processName, "--timed", durationSeconds.ToString(CultureInfo.InvariantCulture), "--terminate_after_timed", "--v1_metrics", "--output_file", csv, "--no_console_stats" }) start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new InvalidOperationException("PresentMon could not be started.");
-        var errorTask = process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
+        // Drain both pipes so a chatty PresentMon can never block on a full buffer.
+        var outputTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var errorTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
+        try { await process.WaitForExitAsync(ct); }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            await process.WaitForExitAsync(CancellationToken.None);
+            throw;
+        }
+        _ = await outputTask;
         var error = await errorTask;
-        if (process.ExitCode != 0) throw new InvalidOperationException($"PresentMon exited with code {process.ExitCode}: {error.Trim()}");
+        if (process.ExitCode != 0) throw new InvalidOperationException($"PresentMon exited with code {process.ExitCode}: {error.Trim()} " +
+            "Frame capture needs membership in Performance Log Users (the installer adds you; sign out and back in once) or running ProSyS as administrator.");
         return ParseCsv(csv, machine, processName);
     }
 
@@ -90,9 +100,43 @@ public sealed class BenchmarkEngine
     }
 
     private static double Delta(double before, double after) => before == 0 ? 0 : (after - before) * 100d / before;
-    private static double Percentile(IReadOnlyList<double> sorted, double percentile) { var index = (sorted.Count - 1) * percentile / 100d; var low = (int)Math.Floor(index); var high = (int)Math.Ceiling(index); return low == high ? sorted[low] : sorted[low] + (sorted[high] - sorted[low]) * (index - low); }
-    private static int FindColumn(IReadOnlyList<string> headers, params string[] names) { foreach (var name in names) { var index = headers.ToList().FindIndex(x => x.Equals(name, StringComparison.OrdinalIgnoreCase)); if (index >= 0) return index; } return -1; }
-    private static List<string> SplitCsv(string line) { var result = new List<string>(); var current = new System.Text.StringBuilder(); var quoted = false; for (var i = 0; i < line.Length; i++) { var c = line[i]; if (c == '"') { if (quoted && i + 1 < line.Length && line[i + 1] == '"') { current.Append('"'); i++; } else quoted = !quoted; } else if (c == ',' && !quoted) { result.Add(current.ToString()); current.Clear(); } else current.Append(c); } result.Add(current.ToString()); return result; }
+    private static double Percentile(IReadOnlyList<double> sorted, double percentile)
+    {
+        var index = (sorted.Count - 1) * percentile / 100d;
+        var low = (int)Math.Floor(index);
+        var high = (int)Math.Ceiling(index);
+        return low == high ? sorted[low] : sorted[low] + (sorted[high] - sorted[low]) * (index - low);
+    }
+
+    private static int FindColumn(IReadOnlyList<string> headers, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var index = headers.ToList().FindIndex(x => x.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0) return index;
+        }
+        return -1;
+    }
+
+    private static List<string> SplitCsv(string line)
+    {
+        var result = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var quoted = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            var c = line[i];
+            if (c == '"')
+            {
+                if (quoted && i + 1 < line.Length && line[i + 1] == '"') { current.Append('"'); i++; }
+                else quoted = !quoted;
+            }
+            else if (c == ',' && !quoted) { result.Add(current.ToString()); current.Clear(); }
+            else current.Append(c);
+        }
+        result.Add(current.ToString());
+        return result;
+    }
 }
 
 public sealed record ToolTrustResult(bool Trusted, string Message, string? Sha256, string? Signer);
