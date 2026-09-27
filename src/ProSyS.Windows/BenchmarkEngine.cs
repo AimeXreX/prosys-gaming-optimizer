@@ -53,7 +53,8 @@ public sealed class BenchmarkEngine
         }
         _ = await outputTask;
         var error = await errorTask;
-        if (process.ExitCode != 0) throw new InvalidOperationException($"PresentMon exited with code {process.ExitCode}: {error.Trim()}");
+        if (process.ExitCode != 0) throw new InvalidOperationException($"PresentMon exited with code {process.ExitCode}: {error.Trim()} " +
+            "Frame capture needs membership in Performance Log Users (the installer adds you; sign out and back in once) or running ProSyS as administrator.");
         return ParseCsv(csv, machine, processName);
     }
 

@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
+
+- Added: one-click release. The GitHub Release ships a self-contained installer (no .NET install needed) with PresentMon and the restore-point helper bundled, plus a portable ZIP and SHA-256 checksums. The installer checks for Windows 11, can add the user to Performance Log Users so FPS benchmarking works without administrator rights, and launches the app as the signed-in user.
 
 - Fixed: cancelling an optimization no longer skips automatic rollback; recovery always runs to completion.
 - Fixed: Binary, MultiString and ExpandString registry values are restored correctly from on-disk backups and compared correctly during verification.
@@ -16,7 +18,7 @@
 - Changed: the Safe profile requires a default recommendation with non-legacy evidence, so the filter is no longer a no-op.
 - Changed: `DetectionStatus.Disabled` was renamed to `Compliant` (same numeric value, so existing journals still load).
 - Added: IPv6 TCP connections in the network scanner; update manifests can reject downgrades; the CPU boost button works for any running game, not only CS2.
-- Added: `tools/PresentMon/Get-PresentMon.ps1`, a GitHub Actions workflow, and an xUnit test suite with regression tests for each fix above.
+- Added: `tools/PresentMon/Get-PresentMon.ps1` (for developers), CI and release GitHub Actions workflows, and an xUnit test suite with regression tests for each fix above.
 
 ## 1.0.0
 

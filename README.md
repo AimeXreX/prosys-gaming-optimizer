@@ -20,7 +20,13 @@ ProSyS is a local-first Windows 11 gaming diagnostic and optimization applicatio
 - Per-process TCP ownership, vendor GPU API capability discovery and a short-lived allowlisted administrator helper for Windows restore points.
 - RSA-PSS signed update-manifest verification and an Inno Setup installer definition with upgrade/repair/uninstall support.
 
-## Build and run
+## Download and install (users)
+
+Download `ProSyS-Gaming-Optimizer-<version>-Setup.exe` from the [latest release](https://github.com/AimeXreX/prosys-gaming-optimizer/releases/latest), run it and open ProSyS from the Start menu. The installer is self-contained: the .NET runtime, PresentMon and the restore-point helper are included, so nothing else needs to be installed and no PowerShell commands are needed. Requires Windows 11 x64.
+
+فایل Setup را از بخش [Releases](https://github.com/AimeXreX/prosys-gaming-optimizer/releases/latest) دانلود و اجرا کنید و برنامه را از منوی Start باز کنید. همه پیش‌نیازها داخل نصب‌کننده است و نیازی به نصب جداگانه یا اجرای دستور PowerShell نیست.
+
+## Build and run (developers)
 
 Requirements: Windows 11 and .NET 8 SDK.
 

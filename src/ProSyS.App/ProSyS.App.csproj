@@ -26,7 +26,7 @@
     <Copy SourceFiles="@(PrivilegedHelperFiles)" DestinationFiles="@(PrivilegedHelperFiles->'$(OutDir)Tools\PrivilegedHelper\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="PublishPrivilegedHelper" AfterTargets="Publish">
-    <!-- Publish the helper straight into the application's publish folder so the installer ships it. -->
-    <MSBuild Projects="..\ProSyS.PrivilegedHelper\ProSyS.PrivilegedHelper.csproj" Targets="Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$([System.IO.Path]::GetFullPath('$(PublishDir)'))Tools\PrivilegedHelper\" />
+    <!-- Publish the helper next to ProSyS.App.exe so a self-contained release shares one copy of the .NET runtime. -->
+    <MSBuild Projects="..\ProSyS.PrivilegedHelper\ProSyS.PrivilegedHelper.csproj" Targets="Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$([System.IO.Path]::GetFullPath('$(PublishDir)'))" />
   </Target>
 </Project>
