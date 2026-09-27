@@ -1,15 +1,19 @@
 name: Release
 
-# Builds a self-contained Windows installer and a portable ZIP and publishes them as a GitHub Release.
-# Push a tag such as v1.1.0, or run manually with a version.
+# Builds a self-contained Windows installer and a portable ZIP on every push (downloadable as a workflow artifact).
+# A GitHub Release is published when:
+#   - main is pushed with a <Version> in Directory.Build.props that has no release yet, or
+#   - a tag such as v1.1.0 is pushed, or
+#   - the workflow is run manually with a version.
 on:
   push:
+    branches: ['**']
     tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version without the v prefix (for example 1.1.0)'
-        required: true
+        description: 'Version without the v prefix (for example 1.1.0); empty uses Directory.Build.props'
+        required: false
 
 permissions:
   contents: write
@@ -27,9 +31,20 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $version = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ github.event.inputs.version }}' } else { '${{ github.ref_name }}'.TrimStart('v') }
+          $version = '${{ github.event.inputs.version }}'
+          if ('${{ github.ref_type }}' -eq 'tag') { $version = '${{ github.ref_name }}'.TrimStart('v') }
+          if (-not $version) { $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version }
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version '$version'." }
           "value=$version" >> $env:GITHUB_OUTPUT
+          $publish = '${{ github.ref_type }}' -eq 'tag' -or '${{ github.event_name }}' -eq 'workflow_dispatch'
+          if ('${{ github.ref }}' -eq 'refs/heads/main') {
+            gh release view "v$version" --repo '${{ github.repository }}' 2>$null | Out-Null
+            $publish = $LASTEXITCODE -ne 0
+            $global:LASTEXITCODE = 0
+          }
+          "publish=$($publish.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Fetch and verify PresentMon
         shell: pwsh
@@ -64,7 +79,14 @@ jobs:
           $files = @(Get-ChildItem artifacts/installer -File)
           $files | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content artifacts/installer/SHA256SUMS.txt
 
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProSyS-Gaming-Optimizer-${{ steps.version.outputs.value }}
+          path: artifacts/installer/*
+
       - name: Publish GitHub Release
+        if: steps.version.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.value }}
