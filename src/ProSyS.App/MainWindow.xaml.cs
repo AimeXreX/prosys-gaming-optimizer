@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<BenchmarkSummary> _benchmarkHistory = new();
     private readonly UiLocalization _localization = new();
     private readonly CheckBox _profileCpuPriorityCheck = new() { IsChecked = false, Margin = new Thickness(0, 8, 0, 8) };
+    private readonly CheckBox _profileGpuCheck = new() { IsChecked = true, Margin = new Thickness(0, 8, 0, 0) };
+    private IReadOnlyList<PerformanceAdvice> _advice = Array.Empty<PerformanceAdvice>();
     private readonly Button _cpuBoostButton = new() { Margin = new Thickness(0, 4, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
     private CpuOptimizationSession? _activeCpuSession;
     private readonly List<ActiveGameSession> _activeGameSessions = new();
@@ -52,6 +54,7 @@ public partial class MainWindow : Window
         RecommendationFilter.Foreground = new SolidColorBrush(Color.FromRgb(32, 28, 42));
         if (ProfileOverlayCheck.Parent is Panel profileOptions)
         {
+            profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _profileGpuCheck);
             profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _profileCpuPriorityCheck);
             _cpuBoostButton.Style = (Style)FindResource("SecondaryButton");
             _cpuBoostButton.Click += CpuBoost_Click;
@@ -95,8 +98,11 @@ public partial class MainWindow : Window
         {
             _snapshot = await _scanner.ScanAsync();
             _plan = await new PlanFactory().CreateAsync(_snapshot, _tweaks);
+            var snapshot = _snapshot;
+            _advice = await Task.Run(() => PerformanceAdvisor.Analyze(snapshot));
             RenderSnapshot(_snapshot);
             RenderRecommendations(_plan);
+            RenderAdvice();
             HeaderState.Text = _persian ? "اسکن تکمیل شد" : "SCAN COMPLETE";
             StatusTitle.Text = _plan.Tweaks.Count(x => x.Selected) == 0
                 ? (_persian ? "سیستم آماده است" : "SYSTEM READY")
@@ -310,7 +316,7 @@ public partial class MainWindow : Window
         if (MessageBox.Show(T("Restore the exact original values recorded for this session?", "مقادیر دقیق ثبت‌شده پیش از این نشست بازگردانده شوند؟"), T("Confirm rollback", "تأیید بازیابی"), MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
         await RunBusyAsync("RESTORING ORIGINAL STATE", async () =>
         {
-            var result = await Engine().RollbackAsync(item.Directory, _rollbackTweaks);
+            var result = await Engine().RollbackAsync(item.Directory, _rollbackTweaks, default, TweakCatalog.ResolveDynamic);
             HeaderState.Text = _persian ? TranslateOperationState(result.State) : result.State.ToString().ToUpperInvariant();
             BackupDetail.Text = T($"Rollback verification: {result.Results.Count(x => x.Success)}/{result.Results.Count} passed.", $"بررسی بازیابی: {result.Results.Count(x => x.Success)} از {result.Results.Count} مورد موفق بود.");
             RefreshHistory();
@@ -328,6 +334,8 @@ public partial class MainWindow : Window
         RootLayout.FlowDirection = _persian ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
         _localization.Apply(RootLayout, _persian);
         LanguageButton.Content = _persian ? "EN" : "فارسی";
+        _profileGpuCheck.Content = T("Use the high-performance GPU for this game (laptops with two GPUs)", "استفاده از GPU پرقدرت برای این بازی (لپ‌تاپ‌های دارای دو کارت گرافیک)");
+        RenderAdvice();
         _profileCpuPriorityCheck.Content = T("Raise game priority to Above normal (never High or Realtime; not allowed by some anti-cheat)", "افزایش اولویت بازی به Above normal (هرگز High یا Realtime؛ برخی ضدتقلب‌ها اجازه نمی‌دهند)");
         _cpuBoostButton.Content = T("ATTACH CPU BOOST TO THE RUNNING GAME", "اتصال تقویت پردازنده به بازی در حال اجرا");
         var startupHeaders = _persian ? new[] { "نام", "منبع", "فایل اجرایی" } : new[] { "Name", "Source", "Executable" };
@@ -435,7 +443,7 @@ public partial class MainWindow : Window
             _ => _tweaks.Where(x => x.Metadata.Category != "Preferences").Select(x => x.Metadata.Id).ToArray()
         };
         var current = GameProfilesList.SelectedItem as GameProfile;
-        var profile = new GameProfile(current?.Id ?? Guid.NewGuid(), name, process, path, kind, ids, ProfileRestoreCheck.IsChecked == true, ProfileOverlayCheck.IsChecked == true, DateTimeOffset.UtcNow, _profileCpuPriorityCheck.IsChecked == true);
+        var profile = new GameProfile(current?.Id ?? Guid.NewGuid(), name, process, path, kind, ids, ProfileRestoreCheck.IsChecked == true, ProfileOverlayCheck.IsChecked == true, DateTimeOffset.UtcNow, _profileCpuPriorityCheck.IsChecked == true, _profileGpuCheck.IsChecked == true);
         if (current is not null) _gameProfiles[_gameProfiles.IndexOf(current)] = profile; else _gameProfiles.Add(profile);
         await _profileStore.SaveAsync(_gameProfiles);
         GameProfilesList.SelectedItem = profile;
@@ -446,7 +454,7 @@ public partial class MainWindow : Window
     {
         if (GameProfilesList.SelectedItem is not GameProfile profile) return;
         ProfileNameText.Text = profile.Name; ProfileProcessText.Text = profile.GameProcess; ProfilePathText.Text = profile.ExecutablePath ?? string.Empty;
-        ProfileKindBox.SelectedIndex = Math.Clamp((int)profile.Profile, 0, 2); ProfileRestoreCheck.IsChecked = profile.RestoreOnExit; ProfileOverlayCheck.IsChecked = profile.OverlayEnabled; _profileCpuPriorityCheck.IsChecked = profile.CpuPriorityEnabled;
+        ProfileKindBox.SelectedIndex = Math.Clamp((int)profile.Profile, 0, 2); ProfileRestoreCheck.IsChecked = profile.RestoreOnExit; ProfileOverlayCheck.IsChecked = profile.OverlayEnabled; _profileCpuPriorityCheck.IsChecked = profile.CpuPriorityEnabled; _profileGpuCheck.IsChecked = profile.HighPerformanceGpu;
     }
 
     private void CpuBoost_Click(object sender, RoutedEventArgs e)
@@ -498,12 +506,22 @@ public partial class MainWindow : Window
         await RunBusyAsync(T("PREPARING GAME SESSION", "در حال آماده‌سازی نشست بازی"), async () =>
         {
             var snapshot = await _scanner.ScanAsync();
-            var basePlan = await new PlanFactory().CreateAsync(snapshot, _tweaks);
-            var plan = new PlanFactory().Select(basePlan, profile.TweakIds.ToHashSet(StringComparer.OrdinalIgnoreCase));
+            var sessionTweaks = _tweaks.ToList();
+            var selectedIds = profile.TweakIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // The GPU preference is keyed by the executable path and is read when the game starts.
+            var executable = profile.ExecutablePath ?? TryGetExecutablePath(runningGame);
+            if (profile.HighPerformanceGpu && executable is not null)
+            {
+                var gpuTweak = TweakCatalog.CreateGpuPreferenceTweak(executable);
+                sessionTweaks.Add(gpuTweak);
+                selectedIds.Add(gpuTweak.Metadata.Id);
+            }
+            var basePlan = await new PlanFactory().CreateAsync(snapshot, sessionTweaks);
+            var plan = new PlanFactory().Select(basePlan, selectedIds);
             SessionSummary? result = null;
             if (plan.Tweaks.Any(x => x.Selected))
             {
-                result = await Engine().ExecuteAsync(plan, _tweaks);
+                result = await Engine().ExecuteAsync(plan, sessionTweaks);
                 if (result.State != OperationState.Completed) throw new InvalidOperationException(T("The game was not started because profile changes could not be verified.", "بازی اجرا نشد چون تغییرات پروفایل تأیید نشدند."));
             }
             Process game;
@@ -514,7 +532,7 @@ public partial class MainWindow : Window
             catch
             {
                 // The game never appeared: undo the profile changes immediately instead of waiting for an exit that will not come.
-                if (result is not null) await Engine().RollbackAsync(result.BackupDirectory, _rollbackTweaks);
+                if (result is not null) await Engine().RollbackAsync(result.BackupDirectory, _rollbackTweaks, default, TweakCatalog.ResolveDynamic);
                 throw;
             }
             CpuOptimizationSession? cpuSession = null;
@@ -535,6 +553,23 @@ public partial class MainWindow : Window
             if (game.HasExited) await EndGameSessionAsync(session, gameExited: true);
         });
     }
+
+    private static string? TryGetExecutablePath(Process? process)
+    {
+        // Protected (anti-cheat) processes deny module access; the profile's executable path is then required for the GPU preference.
+        try { return process?.MainModule?.FileName; }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return null; }
+    }
+
+    private void RenderAdvice()
+    {
+        AdvisorList.ItemsSource = _advice.Select(x => new AdviceRow(_persian ? x.TitleFa : x.Title, _persian ? x.DetailFa : x.Detail)).ToArray();
+        AdvisorEmptyText.Visibility = _advice.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (_snapshot is not null && _advice.Count == 0)
+            AdvisorEmptyText.Text = T("No common FPS limiters were found.", "محدودکننده رایجی برای FPS پیدا نشد.");
+    }
+
+    public sealed record AdviceRow(string Title, string Detail);
 
     /// <summary>
     /// Starts the executable and waits for the real game process. Launchers (Steam, Epic, etc.) often start
@@ -566,7 +601,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                var rollback = await Engine().RollbackAsync(session.BackupDirectory, _rollbackTweaks);
+                var rollback = await Engine().RollbackAsync(session.BackupDirectory, _rollbackTweaks, default, TweakCatalog.ResolveDynamic);
                 var prefix = gameExited ? T("Game exited.", "بازی بسته شد.") : T("ProSyS is closing.", "ProSyS در حال بسته‌شدن است.");
                 GameSessionStatusText.Text = prefix + " " + T($"Original state restored: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}; CPU policy restored: {cpuRestored}.", $"وضعیت اصلی بازگردانده شد: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}؛ سیاست پردازنده بازیابی شد: {(cpuRestored ? "بله" : "خیر")}.");
             }

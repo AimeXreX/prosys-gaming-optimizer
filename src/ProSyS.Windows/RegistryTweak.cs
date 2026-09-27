@@ -9,9 +9,25 @@ public sealed class RegistryTweak : ITweak
     private readonly string _valueName;
     private readonly object _recommended;
     private readonly RegistryValueKind _kind;
+    private readonly string? _token;
+    private readonly Func<MachineSnapshot, CompatibilityResult>? _compatibility;
     public TweakMetadata Metadata { get; }
 
+    public const string DirectXUserGpuPreferences = @"Software\Microsoft\DirectX\UserGpuPreferences";
+
+    /// <summary>
+    /// Sets one <c>Name=Value;</c> token inside a DirectX preference string (the format Windows Settings › Display › Graphics writes),
+    /// keeping every other token. Backup and rollback still restore the whole original string exactly.
+    /// </summary>
+    public static RegistryTweak DirectXSetting(TweakMetadata metadata, string valueName, string token, string tokenValue,
+        Func<MachineSnapshot, CompatibilityResult> compatibility) =>
+        new(metadata, DirectXUserGpuPreferences, valueName, tokenValue, RegistryValueKind.String, token, compatibility);
+
     public RegistryTweak(TweakMetadata metadata, string subKey, string valueName, object recommended, RegistryValueKind kind = RegistryValueKind.DWord)
+        : this(metadata, subKey, valueName, recommended, kind, null, null) { }
+
+    private RegistryTweak(TweakMetadata metadata, string subKey, string valueName, object recommended, RegistryValueKind kind,
+        string? token, Func<MachineSnapshot, CompatibilityResult>? compatibility)
     {
         var allowedRoots = new[]
         {
@@ -30,7 +46,8 @@ public sealed class RegistryTweak : ITweak
             "Software\\Microsoft\\InputPersonalization",
             "Software\\Microsoft\\TabletTip",
             "Software\\Microsoft\\Multimedia\\Audio",
-            "Software\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia"
+            "Software\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia",
+            DirectXUserGpuPreferences
         };
         var allowed = allowedRoots.Any(root => subKey.Equals(root, StringComparison.OrdinalIgnoreCase)
             || subKey.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase));
@@ -41,6 +58,8 @@ public sealed class RegistryTweak : ITweak
         _valueName = valueName;
         _recommended = recommended;
         _kind = kind;
+        _token = token;
+        _compatibility = compatibility;
     }
 
     public Task<DetectionResult> DetectAsync(CancellationToken cancellationToken = default)
@@ -49,7 +68,9 @@ public sealed class RegistryTweak : ITweak
         {
             using var key = Registry.CurrentUser.OpenSubKey(_subKey, false);
             var value = key?.GetValue(_valueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-            var compliant = value is not null && string.Equals(ValueText.Canonical(value), ValueText.Canonical(_recommended), StringComparison.Ordinal);
+            var compliant = _token is null
+                ? value is not null && string.Equals(ValueText.Canonical(value), ValueText.Canonical(_recommended), StringComparison.Ordinal)
+                : value is string text && ReadToken(text, _token) == _recommended.ToString();
             return Task.FromResult(new DetectionResult(compliant ? DetectionStatus.Compliant : DetectionStatus.NonCompliant,
                 value, $"HKCU\\{_subKey}\\{_valueName}", Confidence.Verified, DateTimeOffset.UtcNow,
                 compliant ? "Recommended state is already applied." : "A reversible user-level change is available."));
@@ -59,6 +80,7 @@ public sealed class RegistryTweak : ITweak
     }
 
     public Task<CompatibilityResult> EvaluateCompatibilityAsync(MachineSnapshot machine, CancellationToken cancellationToken = default) =>
+        _compatibility is not null ? Task.FromResult(_compatibility(machine)) :
         Task.FromResult(machine.WindowsBuild >= 22000
             ? new CompatibilityResult(CompatibilityStatus.Compatible, "Supported on detected Windows 11 build.")
             : new CompatibilityResult(CompatibilityStatus.Unsupported, "This MVP supports Windows 11 build 22000 or newer."));
@@ -76,8 +98,25 @@ public sealed class RegistryTweak : ITweak
     public Task ApplyAsync(CancellationToken cancellationToken = default)
     {
         using var key = Registry.CurrentUser.CreateSubKey(_subKey, true);
-        key.SetValue(_valueName, _recommended, _kind);
+        var value = _token is null ? _recommended : WriteToken(key.GetValue(_valueName) as string, _token, _recommended.ToString()!);
+        key.SetValue(_valueName, value, _kind);
         return Task.CompletedTask;
+    }
+
+    /// <summary>Reads <paramref name="token"/> from a <c>Name=Value;Name=Value;</c> string.</summary>
+    public static string? ReadToken(string text, string token) =>
+        text.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => part.Split('=', 2))
+            .Where(pair => pair.Length == 2 && pair[0].Equals(token, StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair[1]).LastOrDefault();
+
+    /// <summary>Sets <paramref name="token"/> in a <c>Name=Value;</c> string, keeping the other tokens and their order.</summary>
+    public static string WriteToken(string? text, string token, string value)
+    {
+        var parts = (text ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(part => !part.Split('=', 2)[0].Equals(token, StringComparison.OrdinalIgnoreCase)).ToList();
+        parts.Add($"{token}={value}");
+        return string.Join(";", parts) + ";";
     }
 
     public Task<DetectionResult> VerifyAsync(CancellationToken cancellationToken = default) => DetectAsync(cancellationToken);

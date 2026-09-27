@@ -132,7 +132,7 @@ public class CatalogTests
     public void CatalogIsSmallCuratedAndReferenced()
     {
         var catalog = TweakCatalog.CreateTweaks();
-        Assert.Equal(15, catalog.Count);
+        Assert.Equal(18, catalog.Count);
         Assert.Equal(catalog.Count, catalog.Select(x => x.Metadata.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.All(catalog, x => Assert.False(string.IsNullOrWhiteSpace(x.Metadata.Reference), x.Metadata.Id));
         Assert.All(catalog, x => Assert.True(!x.Metadata.RequiresAdministrator && x.Metadata.Risk.Reversibility == Reversibility.Easy));
@@ -160,7 +160,7 @@ public class CatalogTests
     public void RollbackCatalogStillCoversEveryEarlierCapability()
     {
         var rollback = TweakCatalog.CreateRollbackCatalog();
-        Assert.Equal(180, rollback.Count);
+        Assert.Equal(180 + 3, rollback.Count); // every 1.0 capability plus the 1.3.0 additions that were not in 1.0
         Assert.Equal(rollback.Count, rollback.Select(x => x.Metadata.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.Contains(rollback, x => x.Metadata.Id == "gaming.capture.maximumrecordlength");
         Assert.All(TweakCatalog.CreateTweaks(), offered => Assert.Contains(rollback, x => x.Metadata.Id == offered.Metadata.Id));
@@ -190,6 +190,75 @@ public class CatalogTests
             Assert.Contains(UiLocalization.Translate(tweak.Metadata.Description, true), ch => ch is >= '\u0600' and <= '\u06ff');
             Assert.NotEqual(tweak.Metadata.Category, UiLocalization.Translate(tweak.Metadata.Category, true));
         }
+    }
+
+    [Fact]
+    public void FpsCapabilitiesAreOfferedAsOptIn()
+    {
+        var ids = TweakCatalog.CreateTweaks().Where(x => !x.Metadata.RecommendedByDefault).Select(x => x.Metadata.Id).ToHashSet();
+        Assert.Contains("gaming.graphics.windowed-optimizations", ids);
+        Assert.Contains("power.plan.high-performance", ids);
+        Assert.Contains("display.refresh.maximum", ids);
+    }
+
+    [Fact]
+    public void PerGameGpuPreferenceRoundTripsThroughItsId()
+    {
+        var exe = Path.Combine(Path.GetTempPath(), "Games", "game.exe");
+        var tweak = TweakCatalog.CreateGpuPreferenceTweak(exe);
+        Assert.StartsWith(TweakCatalog.GpuPreferencePrefix, tweak.Metadata.Id);
+        Assert.Equal(tweak.Metadata.Id, TweakCatalog.ResolveDynamic(tweak.Metadata.Id)!.Metadata.Id);
+        Assert.Null(TweakCatalog.ResolveDynamic("unknown.id"));
+    }
+
+    [Fact]
+    public async Task GpuPreferenceNeedsTwoGpus()
+    {
+        var tweak = TweakCatalog.CreateGpuPreferenceTweak(Path.Combine(Path.GetTempPath(), "game.exe"));
+        Assert.Equal(CompatibilityStatus.Unsupported, (await tweak.EvaluateCompatibilityAsync(TestData.Snapshot())).Status);
+        var hybrid = TestData.Snapshot() with { Gpus = new[] { new GpuInfo("Intel UHD", "1", "test"), new GpuInfo("NVIDIA RTX", "2", "test") } };
+        Assert.Equal(CompatibilityStatus.Compatible, (await tweak.EvaluateCompatibilityAsync(hybrid)).Status);
+    }
+
+    [Theory]
+    [InlineData(null, "SwapEffectUpgradeEnable=1;")]
+    [InlineData("VRROptimizeEnable=0;", "VRROptimizeEnable=0;SwapEffectUpgradeEnable=1;")]
+    [InlineData("SwapEffectUpgradeEnable=0;AutoHDREnable=1;", "AutoHDREnable=1;SwapEffectUpgradeEnable=1;")]
+    public void DirectXTokensAreMergedWithoutLosingOthers(string? before, string expected)
+    {
+        var after = RegistryTweak.WriteToken(before, "SwapEffectUpgradeEnable", "1");
+        Assert.Equal(expected, after);
+        Assert.Equal("1", RegistryTweak.ReadToken(after, "SwapEffectUpgradeEnable"));
+    }
+
+    [Fact]
+    public void RefreshRateStateIsCanonical()
+    {
+        var text = DisplayRefreshTweak.Format(new Dictionary<string, int> { [@"\\.\DISPLAY2"] = 144, [@"\\.\DISPLAY1"] = 60 });
+        Assert.Equal(@"\\.\DISPLAY1=60;\\.\DISPLAY2=144;", text);
+        Assert.Equal(144, DisplayRefreshTweak.Parse(text)[@"\\.\display2"]);
+    }
+
+    [WindowsFact]
+    public async Task PowerPlanAndDisplayDetectionWork()
+    {
+        var catalog = TweakCatalog.CreateTweaks();
+        foreach (var tweak in catalog.Where(x => x is PowerPlanTweak or DisplayRefreshTweak))
+            Assert.NotEqual(DetectionStatus.DetectionFailed, (await tweak.DetectAsync()).Status);
+    }
+
+    [WindowsFact]
+    public async Task GpuPreferenceAppliesAndRestoresExactly()
+    {
+        using var folder = new TempFolder();
+        var tweak = TweakCatalog.CreateGpuPreferenceTweak(Path.Combine(folder.Path, "prosys-test-game.exe"));
+        var hybrid = TestData.Snapshot() with { Gpus = new[] { new GpuInfo("A", "1", "t"), new GpuInfo("B", "2", "t") } };
+        var engine = new OptimizationEngine(folder.Path, new NullAudit());
+        var applied = await engine.ExecuteAsync(await new PlanFactory().CreateAsync(hybrid, new[] { tweak }), new[] { tweak });
+        Assert.Equal(OperationState.Completed, applied.State);
+        var restored = await engine.RollbackAsync(applied.BackupDirectory, Array.Empty<ITweak>(), default, TweakCatalog.ResolveDynamic);
+        Assert.Equal(OperationState.RolledBack, restored.State);
+        Assert.Equal(DetectionStatus.NonCompliant, (await tweak.DetectAsync()).Status);
     }
 
     [WindowsFact]
@@ -318,6 +387,40 @@ public class BenchmarkTests
         Assert.Contains("&lt;unsafe&gt;", html);
         Assert.DoesNotContain("<unsafe>", html);
     }
+}
+
+public class AdvisorTests
+{
+    private static MachineSnapshot Machine(bool laptop = false, int gpus = 1, long freeGb = 200) => TestData.Snapshot() with
+    {
+        IsLaptop = laptop,
+        Gpus = Enumerable.Range(0, gpus).Select(i => new GpuInfo($"GPU {i}", "1", "t")).ToArray(),
+        Drives = new[] { new DriveInfoSnapshot("C:\\", "NTFS", 500L * 1073741824, freeGb * 1073741824, true) }
+    };
+
+    [Fact]
+    public void HealthyDesktopHasNoAdvice() =>
+        Assert.Empty(PerformanceAdvisor.Evaluate(Machine(), new[] { new PerformanceAdvisor.MemoryModule(34, 6000, 16UL << 30), new PerformanceAdvisor.MemoryModule(34, 6000, 16UL << 30) }, false, 2, null));
+
+    [Fact]
+    public void CommonLimitersAreReportedMostSevereFirst()
+    {
+        var refresh = new DetectionResult(DetectionStatus.NonCompliant, @"\\.\DISPLAY1=60;", "t", Confidence.Verified, DateTimeOffset.UtcNow, "DISPLAY1: 60 Hz → 144 Hz available");
+        var advice = PerformanceAdvisor.Evaluate(Machine(laptop: true, gpus: 2, freeGb: 5), new[] { new PerformanceAdvisor.MemoryModule(26, 2400, 8UL << 30) }, true, 1, refresh);
+        var ids = advice.Select(x => x.Id).ToList();
+        Assert.Equal(new[] { "on-battery", "refresh-rate" }, ids.Take(2).OrderBy(x => x));
+        Assert.Contains("hybrid-gpu", ids);
+        Assert.Contains("single-channel", ids);
+        Assert.Contains("gpu-scheduling", ids);
+        Assert.Contains("disk-space", ids);
+        Assert.DoesNotContain("memory-base-speed", ids); // laptops rarely expose XMP; not advised there
+        Assert.All(advice, x => Assert.False(string.IsNullOrWhiteSpace(x.TitleFa)));
+    }
+
+    [Fact]
+    public void DesktopMemoryAtJedecSpeedIsFlagged() =>
+        Assert.Contains(PerformanceAdvisor.Evaluate(Machine(), new[] { new PerformanceAdvisor.MemoryModule(34, 4800, 16UL << 30), new PerformanceAdvisor.MemoryModule(34, 4800, 16UL << 30) }, false, null, null),
+            x => x.Id == "memory-base-speed");
 }
 
 public class SystemIntegrationTests

@@ -133,6 +133,19 @@ public sealed partial class UiLocalization
         ["Hides suggested content in the Settings app."] = "محتوای پیشنهادی را در برنامه Settings پنهان می‌کند.",
         ["A preference that removes promotional content from Settings."] = "یک ترجیح که محتوای تبلیغاتی را از Settings حذف می‌کند.",
         ["Preferences"] = "ترجیحات",
+        // FPS features (1.3.0)
+        ["FPS ADVISOR"] = "مشاور FPS",
+        ["Run a scan to check for common FPS limiters."] = "برای بررسی محدودکننده‌های رایج FPS یک اسکن اجرا کنید.",
+        ["Optimizations for windowed games"] = "بهینه‌سازی بازی‌های پنجره‌ای",
+        ["Lets DirectX 10/11 games that run in a window or borderless window use the modern flip presentation model."] = "به بازی‌های DirectX 10/11 که در حالت پنجره‌ای یا Borderless اجرا می‌شوند اجازه می‌دهد از مدل نمایش مدرن Flip استفاده کنند.",
+        ["Lower input latency and better frame pacing in borderless/windowed mode, and it enables Auto HDR and variable refresh rate there. Games in exclusive full screen are unaffected."] = "تأخیر ورودی کمتر و یکنواختی بهتر فریم‌ها در حالت Borderless/پنجره‌ای، و فعال شدن Auto HDR و نرخ تازه‌سازی متغیر در این حالت. بازی‌های تمام‌صفحه انحصاری تأثیری نمی‌گیرند.",
+        ["High-performance power plan"] = "طرح انرژی پرقدرت",
+        ["Switches to the Ultimate Performance or High performance power plan (whichever exists) and restores your plan afterwards."] = "به طرح انرژی Ultimate Performance یا High performance (هر کدام موجود باشد) می‌رود و بعداً طرح قبلی شما را برمی‌گرداند.",
+        ["Keeps CPU clocks high and avoids aggressive power saving, which mainly helps CPU-bound games and laptops on AC power. Best used inside a game profile so it only applies while you play."] = "فرکانس پردازنده را بالا نگه می‌دارد و از صرفه‌جویی شدید انرژی جلوگیری می‌کند؛ بیشتر به بازی‌های وابسته به CPU و لپ‌تاپ‌های متصل به برق کمک می‌کند. بهتر است داخل پروفایل بازی استفاده شود تا فقط هنگام بازی اعمال شود.",
+        ["Highest refresh rate"] = "بیشترین نرخ تازه‌سازی",
+        ["Sets every connected display to the highest refresh rate it supports at its current resolution."] = "همه نمایشگرهای متصل را روی بیشترین نرخ تازه‌سازی که در رزولوشن فعلی پشتیبانی می‌کنند تنظیم می‌کند.",
+        ["A 120–240 Hz monitor left at 60 Hz caps what you see at 60 frames per second no matter how fast the game renders."] = "مانیتور ۱۲۰ تا ۲۴۰ هرتزی که روی ۶۰ هرتز مانده، هر قدر هم بازی سریع رندر کند، تصویر را به ۶۰ فریم در ثانیه محدود می‌کند.",
+        ["Use the high-performance GPU for this game (laptops with two GPUs)"] = "استفاده از GPU پرقدرت برای این بازی (لپ‌تاپ‌های دارای دو کارت گرافیک)",
         ["Baseline run (before applying changes)"] = "اجرای پایه (پیش از اعمال تغییرات)",
     };
 

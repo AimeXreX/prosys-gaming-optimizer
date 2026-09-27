@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0
+
+FPS-focused additions. Each one maps to a documented Windows setting, is opt-in, and is restored exactly by rollback.
+
+- Added: **High-performance GPU per game.** Game profiles can tell Windows to run the game on the dedicated GPU (laptops with integrated + dedicated graphics). This is often the largest single FPS gain on such laptops. It is written to the same place as Settings › Display › Graphics, and other per-app graphics options are preserved.
+- Added: **Optimizations for windowed games** (Windows 11 22H2+). Borderless and windowed DirectX 10/11 games use the flip presentation model: lower latency and better frame pacing, plus Auto HDR/VRR support. Other DirectX preferences are preserved.
+- Added: **High-performance power plan.** Switches to Ultimate Performance or High performance when the PC has one, and restores your plan afterwards. Inside a game profile it applies only while the game runs. On Modern Standby laptops that only have Balanced, it is shown as unsupported and points to Power mode instead.
+- Added: **Highest refresh rate.** Sets every display to the highest refresh rate it supports at its current resolution, for example a 144 Hz monitor that was left at 60 Hz.
+- Added: **FPS advisor** (Diagnostics page and `prosys advise`). A read-only check for limiters that software should not change: running on battery, display below its maximum refresh rate, hybrid GPU, single-channel memory, desktop memory at base JEDEC speed (enable XMP/EXPO), hardware-accelerated GPU scheduling off, low free space on the system drive, and Game Mode off.
+- Changed: Balanced and Competitive game profiles include the new gaming settings; the per-game GPU option is on by default for new profiles.
+- Not added on purpose: disabling Memory Integrity/VBS, Defender or other security features; HPET/timer-resolution, network-throttling and "SystemResponsiveness" registry edits; killing services. These are either security-reducing or have no reproducible FPS benefit on Windows 11.
+
 ## 1.2.0
 
 - Changed: the offered catalog is now 15 curated settings, each with a reference to the Windows Settings page or dialog it corresponds to, in the categories Gaming & Capture, Input, Accessibility & Input and Preferences. Only Game Mode is selected by default. Full-screen-optimization (GameConfigStore), DWM and HKLM-only values were removed. Every capability shipped by earlier versions remains available for rollback only, so existing backups still restore.
