@@ -6,7 +6,8 @@ public enum RiskLevel { None = 0, VeryLow = 1, Low = 2, Moderate = 3, High = 4, 
 public enum BenefitLevel { None, Negligible, Low, Moderate, PotentiallyHigh, Unknown }
 public enum EvidenceType { OfficialDocumentation, VendorDocumentation, MeasuredOnThisMachine, ControlledBenchmark, GenerallySupportedBehavior, HardwareDependent, Experimental, Legacy, Unknown }
 public enum Confidence { Verified, High, Medium, Experimental, Unknown }
-public enum DetectionStatus { Enabled, Disabled, Unsupported, Unavailable, Unknown, DetectionFailed, PermissionRequired }
+/// <summary>Compliant means the recommended state is already in place; Enabled means a change is still available.</summary>
+public enum DetectionStatus { Enabled, Compliant, Unsupported, Unavailable, Unknown, DetectionFailed, PermissionRequired }
 public enum CompatibilityStatus { Compatible, Unsupported, PermissionRequired, Unknown }
 public enum Reversibility { Easy, Moderate, Difficult }
 public enum OperationState { Created, Analyzed, Planned, BackedUp, Applying, Verifying, Completed, PartiallyFailed, RollbackPending, RollingBack, RolledBack, RecoveryRequired }

@@ -27,8 +27,10 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<BenchmarkSummary> _benchmarkHistory = new();
     private readonly UiLocalization _localization = new();
     private readonly CheckBox _profileCpuPriorityCheck = new() { IsChecked = true, Margin = new Thickness(0, 8, 0, 8) };
-    private readonly Button _cs2CpuBoostButton = new() { Margin = new Thickness(0, 4, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
-    private CpuOptimizationSession? _activeCs2CpuSession;
+    private readonly Button _cpuBoostButton = new() { Margin = new Thickness(0, 4, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
+    private CpuOptimizationSession? _activeCpuSession;
+    private readonly List<ActiveGameSession> _activeGameSessions = new();
+    private bool _closingAfterRestore;
     private readonly GameProfileStore _profileStore;
     private OverlayWindow? _overlayWindow;
     private MachineSnapshot? _snapshot;
@@ -49,14 +51,15 @@ public partial class MainWindow : Window
         if (ProfileOverlayCheck.Parent is Panel profileOptions)
         {
             profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _profileCpuPriorityCheck);
-            _cs2CpuBoostButton.Style = (Style)FindResource("SecondaryButton");
-            _cs2CpuBoostButton.Click += Cs2CpuBoost_Click;
-            profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _cs2CpuBoostButton);
+            _cpuBoostButton.Style = (Style)FindResource("SecondaryButton");
+            _cpuBoostButton.Click += CpuBoost_Click;
+            profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _cpuBoostButton);
         }
         foreach (var category in _tweaks.Select(x => x.Metadata.Category).Distinct(StringComparer.CurrentCultureIgnoreCase).OrderBy(x => x))
             RecommendationFilter.Items.Add(new ComboBoxItem { Content = category, Tag = "category" });
         RefreshHistory();
         Loaded += MainWindow_Loaded;
+        Closing += MainWindow_Closing;
         Closed += (_, _) => _overlayWindow?.Close();
         SourceInitialized += (_, _) => EnableDarkTitleBar();
     }
@@ -65,6 +68,8 @@ public partial class MainWindow : Window
     {
         ApplyLanguage();
         foreach (var profile in await _profileStore.LoadAsync()) _gameProfiles.Add(profile);
+        if (_profileStore.QuarantinedFile is { } quarantined)
+            GameSessionStatusText.Text = T($"The saved game profiles were unreadable and were kept at {quarantined}.", $"فایل پروفایل‌های بازی خوانا نبود و در {quarantined} نگه داشته شد.");
         await LoadBenchmarkHistoryAsync();
         var trust = CreateBenchmarkEngine().VerifyTool();
         PresentMonTrustText.Text = trust.Trusted
@@ -110,7 +115,7 @@ public partial class MainWindow : Window
         MemoryValue.Text = $"{snapshot.TotalMemoryBytes / 1073741824d:F1} GB";
         var available = snapshot.Insights?.AvailableMemoryBytes / 1073741824d ?? 0;
         AvailableMemoryText.Text = $"{available:F1} GB";
-        AvailableValue.Text = _plan?.Tweaks.Count(x => x.Current.Status != DetectionStatus.Disabled).ToString() ?? "0";
+        AvailableValue.Text = _plan?.Tweaks.Count(x => x.Current.Status != DetectionStatus.Compliant).ToString() ?? "0";
         var selectedCount = _plan?.Tweaks.Count(x => x.Selected) ?? 0;
         var score = 100 - Math.Min(20, selectedCount * 3);
         if (snapshot.Insights is { } measured && measured.AvailableMemoryBytes < snapshot.TotalMemoryBytes * 0.15) score -= 15;
@@ -238,7 +243,9 @@ public partial class MainWindow : Window
         {
             var result = await Engine().ExecuteAsync(_plan, _tweaks);
             StatusTitle.Text = result.State == OperationState.Completed ? T("OPTIMIZATION VERIFIED", "بهینه‌سازی تأیید شد") : T($"SESSION {result.State.ToString().ToUpperInvariant()}", $"وضعیت نشست: {TranslateOperationState(result.State)}");
-            StatusSubtitle.Text = T($"{result.Results.Count(x => x.Success)} verified • Recovery data saved locally.", $"{result.Results.Count(x => x.Success)} تغییر تأیید شد • داده بازیابی به‌صورت محلی ذخیره شد.");
+            var needsSignOut = result.State == OperationState.Completed && _plan.Tweaks.Any(x => x.Selected && _tweaks.Any(t => t.Metadata.RequiresSignOut && t.Metadata.Id == x.TweakId));
+            StatusSubtitle.Text = T($"{result.Results.Count(x => x.Success)} verified • Recovery data saved locally.", $"{result.Results.Count(x => x.Success)} تغییر تأیید شد • داده بازیابی به‌صورت محلی ذخیره شد.")
+                + (needsSignOut ? T(" Some changes take effect after you sign out.", " برخی تغییرات پس از خروج و ورود دوباره به حساب اعمال می‌شوند.") : string.Empty);
             RefreshHistory();
             _snapshot = await _scanner.ScanAsync();
             _plan = await new PlanFactory().CreateAsync(_snapshot, _tweaks);
@@ -319,7 +326,7 @@ public partial class MainWindow : Window
         _localization.Apply(RootLayout, _persian);
         LanguageButton.Content = _persian ? "EN" : "فارسی";
         _profileCpuPriorityCheck.Content = T("Prioritize CPU scheduling for CPU-bound games (High, never Realtime)", "اولویت‌دهی پردازنده برای بازی‌های CPU محور (High؛ هرگز Realtime)");
-        _cs2CpuBoostButton.Content = T("ATTACH CPU BOOST TO RUNNING CS2", "اتصال تقویت پردازنده به CS2 در حال اجرا");
+        _cpuBoostButton.Content = T("ATTACH CPU BOOST TO THE RUNNING GAME", "اتصال تقویت پردازنده به بازی در حال اجرا");
         var startupHeaders = _persian ? new[] { "نام", "منبع", "فایل اجرایی" } : new[] { "Name", "Source", "Executable" };
         for (var i = 0; i < StartupGrid.Columns.Count; i++) StartupGrid.Columns[i].Header = startupHeaders[i];
         var processHeaders = _persian ? new[] { "پردازش", "شناسه", "حافظه", "زمان پردازنده", "دسته" } : new[] { "Process", "PID", "Memory", "CPU time", "Class" };
@@ -367,7 +374,12 @@ public partial class MainWindow : Window
             foreach (var item in items.OrderByDescending(x => x.CapturedAt)) _benchmarkHistory.Add(item);
             RefreshBenchmarkDisplay();
         }
-        catch (JsonException) { BenchmarkResultText.Text = T("Benchmark history is unreadable; captures were left untouched.", "تاریخچه بنچمارک خوانا نیست؛ فایل‌های ثبت‌شده دست‌نخورده باقی ماندند."); }
+        catch (JsonException)
+        {
+            // Move the unreadable file aside so the next save cannot overwrite it.
+            File.Move(path, Path.Combine(Path.GetDirectoryName(path)!, $"history.corrupt-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json"), true);
+            BenchmarkResultText.Text = T("Benchmark history is unreadable; it was kept as a separate file and captures were left untouched.", "تاریخچه بنچمارک خوانا نیست؛ به‌صورت فایل جداگانه نگه داشته شد و فایل‌های ثبت‌شده دست‌نخورده باقی ماندند.");
+        }
     }
 
     private async Task SaveBenchmarkHistoryAsync()
@@ -398,7 +410,7 @@ public partial class MainWindow : Window
         var kind = (OptimizationProfileKind)Math.Clamp(ProfileKindBox.SelectedIndex, 0, 2);
         var ids = kind switch
         {
-            OptimizationProfileKind.Safe => _tweaks.Where(x => x.Metadata.RecommendedByDefault).Select(x => x.Metadata.Id).ToArray(),
+            OptimizationProfileKind.Safe => _tweaks.Where(x => new RiskEngine().AllowedInSafeProfile(x.Metadata)).Select(x => x.Metadata.Id).ToArray(),
             OptimizationProfileKind.Balanced => _tweaks.Where(x => !x.Metadata.Category.Equals("Input", StringComparison.OrdinalIgnoreCase)).Select(x => x.Metadata.Id).ToArray(),
             _ => _tweaks.Select(x => x.Metadata.Id).ToArray()
         };
@@ -417,35 +429,43 @@ public partial class MainWindow : Window
         ProfileKindBox.SelectedIndex = Math.Clamp((int)profile.Profile, 0, 2); ProfileRestoreCheck.IsChecked = profile.RestoreOnExit; ProfileOverlayCheck.IsChecked = profile.OverlayEnabled; _profileCpuPriorityCheck.IsChecked = profile.CpuPriorityEnabled;
     }
 
-    private void Cs2CpuBoost_Click(object sender, RoutedEventArgs e)
+    private void CpuBoost_Click(object sender, RoutedEventArgs e)
     {
-        if (_activeCs2CpuSession is not null)
+        if (_activeCpuSession is not null)
         {
-            MessageBox.Show(T("CPU prioritization is already attached to CS2.", "اولویت‌دهی پردازنده از قبل به CS2 متصل است."), "ProSyS");
+            MessageBox.Show(T("CPU prioritization is already attached to a running game.", "اولویت‌دهی پردازنده از قبل به یک بازی در حال اجرا متصل است."), "ProSyS");
             return;
         }
-        var game = Process.GetProcessesByName("cs2").FirstOrDefault(x => !x.HasExited);
+        var processName = Path.GetFileNameWithoutExtension(ProfileProcessText.Text.Trim());
+        if (string.IsNullOrWhiteSpace(processName))
+        {
+            MessageBox.Show(T("Enter the game process in the profile form (for example cs2.exe), then try again.", "پردازش بازی را در فرم پروفایل وارد کنید (برای نمونه cs2.exe) و دوباره تلاش کنید."), "ProSyS");
+            return;
+        }
+        var game = Process.GetProcessesByName(processName).FirstOrDefault(x => !x.HasExited);
         if (game is null)
         {
-            MessageBox.Show(T("CS2 is not running. Start the game, enter the main menu, then try again.", "CS2 در حال اجرا نیست. بازی را اجرا کنید، وارد منوی اصلی شوید و دوباره تلاش کنید."), "ProSyS");
+            MessageBox.Show(T($"{processName} is not running. Start the game, then try again.", $"{processName} در حال اجرا نیست. بازی را اجرا کنید و دوباره تلاش کنید."), "ProSyS");
             return;
         }
         try
         {
-            _activeCs2CpuSession = new ProcessCpuOptimizer().Apply(game);
+            var session = new ProcessCpuOptimizer().Apply(game);
+            _activeCpuSession = session;
             game.EnableRaisingEvents = true;
             game.Exited += (_, _) => Dispatcher.Invoke(() =>
             {
-                _activeCs2CpuSession = null;
-                GameSessionStatusText.Text = T("CS2 exited; the per-process CPU policy ended automatically.", "CS2 بسته شد؛ سیاست پردازنده مخصوص همان پردازش خودکار پایان یافت.");
+                if (!ReferenceEquals(_activeCpuSession, session)) return;
+                _activeCpuSession = null;
+                GameSessionStatusText.Text = T($"{processName} exited; the per-process CPU policy ended automatically.", $"{processName} بسته شد؛ سیاست پردازنده مخصوص همان پردازش خودکار پایان یافت.");
             });
-            GameSessionStatusText.Text = T($"CS2 CPU mode attached to PID {game.Id}: High priority + Windows priority boost. Realtime and forced 90% load are intentionally not used.",
-                $"حالت پردازنده CS2 به پردازش {game.Id} متصل شد: اولویت High و Priority Boost ویندوز فعال است. حالت خطرناک Realtime و بار مصنوعی ۹۰٪ عمداً استفاده نمی‌شوند.");
+            GameSessionStatusText.Text = T($"{processName} CPU mode attached to PID {game.Id}: High priority + Windows priority boost. Realtime is intentionally not used.",
+                $"حالت پردازنده {processName} به پردازش {game.Id} متصل شد: اولویت High و Priority Boost ویندوز فعال است. حالت خطرناک Realtime عمداً استفاده نمی‌شود.");
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            _activeCs2CpuSession = null;
-            MessageBox.Show(T("Windows did not allow changing the CS2 process priority: ", "ویندوز اجازه تغییر اولویت پردازش CS2 را نداد: ") + ex.Message, "ProSyS", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _activeCpuSession = null;
+            MessageBox.Show(T("Windows did not allow changing the game process priority: ", "ویندوز اجازه تغییر اولویت پردازش بازی را نداد: ") + ex.Message, "ProSyS", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -460,9 +480,23 @@ public partial class MainWindow : Window
             var snapshot = await _scanner.ScanAsync();
             var basePlan = await new PlanFactory().CreateAsync(snapshot, _tweaks);
             var plan = new PlanFactory().Select(basePlan, profile.TweakIds.ToHashSet(StringComparer.OrdinalIgnoreCase));
-            var result = await Engine().ExecuteAsync(plan, _tweaks);
-            if (result.State != OperationState.Completed) throw new InvalidOperationException(T("The game was not started because profile changes could not be verified.", "بازی اجرا نشد چون تغییرات پروفایل تأیید نشدند."));
-            var game = runningGame ?? Process.Start(new ProcessStartInfo(profile.ExecutablePath!) { UseShellExecute = true }) ?? throw new InvalidOperationException(T("Game process could not be started.", "پردازش بازی اجرا نشد."));
+            SessionSummary? result = null;
+            if (plan.Tweaks.Any(x => x.Selected))
+            {
+                result = await Engine().ExecuteAsync(plan, _tweaks);
+                if (result.State != OperationState.Completed) throw new InvalidOperationException(T("The game was not started because profile changes could not be verified.", "بازی اجرا نشد چون تغییرات پروفایل تأیید نشدند."));
+            }
+            Process game;
+            try
+            {
+                game = runningGame ?? await StartAndFindGameAsync(profile.ExecutablePath!, processBaseName);
+            }
+            catch
+            {
+                // The game never appeared: undo the profile changes immediately instead of waiting for an exit that will not come.
+                if (result is not null) await Engine().RollbackAsync(result.BackupDirectory, _tweaks);
+                throw;
+            }
             CpuOptimizationSession? cpuSession = null;
             if (profile.CpuPriorityEnabled)
             {
@@ -472,20 +506,76 @@ public partial class MainWindow : Window
                     $"{profile.Name} متصل شد (PID {game.Id}). اولویت پردازنده: High؛ مصرف فعلی نرمال‌شده: {cpu:F0}٪.");
             }
             if (profile.OverlayEnabled) ShowOverlay();
-            if (!profile.CpuPriorityEnabled) GameSessionStatusText.Text = T($"{profile.Name} is running. {result.Results.Count} changes verified.", $"{profile.Name} در حال اجراست؛ {result.Results.Count} تغییر تأیید شد.");
-            if (profile.RestoreOnExit)
-            {
-                game.EnableRaisingEvents = true;
-                game.Exited += async (_, _) => await Dispatcher.InvokeAsync(async () =>
-                {
-                    var cpuRestored = cpuSession?.TryRestore() ?? true;
-                    var rollback = await Engine().RollbackAsync(result.BackupDirectory, _tweaks);
-                    GameSessionStatusText.Text = T($"Game exited. Original state restored: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}; CPU policy restored: {cpuRestored}.", $"بازی بسته شد؛ وضعیت اصلی بازگردانده شد: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}؛ سیاست پردازنده بازیابی شد: {(cpuRestored ? "بله" : "خیر")}.");
-                    HideOverlay(); RefreshHistory();
-                });
-            }
+            var changed = result?.Results.Count ?? 0;
+            if (!profile.CpuPriorityEnabled) GameSessionStatusText.Text = T($"{profile.Name} is running. {changed} changes verified.", $"{profile.Name} در حال اجراست؛ {changed} تغییر تأیید شد.");
+            var session = new ActiveGameSession(game, profile.RestoreOnExit ? result?.BackupDirectory : null, cpuSession);
+            _activeGameSessions.Add(session);
+            game.EnableRaisingEvents = true;
+            game.Exited += (_, _) => Dispatcher.InvokeAsync(() => EndGameSessionAsync(session, gameExited: true));
+            if (game.HasExited) await EndGameSessionAsync(session, gameExited: true);
         });
     }
+
+    /// <summary>
+    /// Starts the executable and waits for the real game process. Launchers (Steam, Epic, etc.) often start
+    /// the game as a different process and exit immediately, so the started process itself is not tracked.
+    /// </summary>
+    private static async Task<Process> StartAndFindGameAsync(string executablePath, string processBaseName)
+    {
+        var launched = Process.Start(new ProcessStartInfo(executablePath) { UseShellExecute = true });
+        var deadline = DateTime.UtcNow.AddMinutes(2);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (launched is { HasExited: false } && launched.ProcessName.Equals(processBaseName, StringComparison.OrdinalIgnoreCase)) return launched;
+            var game = Process.GetProcessesByName(processBaseName).FirstOrDefault(x => !x.HasExited);
+            if (game is not null) return game;
+            await Task.Delay(1000);
+        }
+        throw new InvalidOperationException($"{processBaseName} did not start within two minutes; profile changes were restored.");
+    }
+
+    private async Task EndGameSessionAsync(ActiveGameSession session, bool gameExited)
+    {
+        if (!_activeGameSessions.Remove(session)) return;
+        try
+        {
+            var cpuRestored = session.Cpu?.TryRestore() ?? true;
+            if (session.BackupDirectory is null)
+            {
+                GameSessionStatusText.Text = T($"Game session ended. CPU policy restored: {cpuRestored}.", $"نشست بازی پایان یافت؛ سیاست پردازنده بازیابی شد: {(cpuRestored ? "بله" : "خیر")}.");
+            }
+            else
+            {
+                var rollback = await Engine().RollbackAsync(session.BackupDirectory, _tweaks);
+                var prefix = gameExited ? T("Game exited.", "بازی بسته شد.") : T("ProSyS is closing.", "ProSyS در حال بسته‌شدن است.");
+                GameSessionStatusText.Text = prefix + " " + T($"Original state restored: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}; CPU policy restored: {cpuRestored}.", $"وضعیت اصلی بازگردانده شد: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}؛ سیاست پردازنده بازیابی شد: {(cpuRestored ? "بله" : "خیر")}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            GameSessionStatusText.Text = T("Automatic restore failed; use History & Backups to restore manually. ", "بازیابی خودکار ناموفق بود؛ از بخش تاریخچه و پشتیبان به‌صورت دستی بازیابی کنید. ") + ex.Message;
+        }
+        finally
+        {
+            if (_activeGameSessions.Count == 0) HideOverlay();
+            RefreshHistory();
+        }
+    }
+
+    private async void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (_closingAfterRestore || (_activeGameSessions.Count == 0 && _activeCpuSession is null)) return;
+        // Restore every game session before exiting; otherwise its changes would stay applied after ProSyS closes.
+        e.Cancel = true;
+        IsEnabled = false;
+        foreach (var session in _activeGameSessions.ToArray()) await EndGameSessionAsync(session, gameExited: false);
+        _activeCpuSession?.TryRestore();
+        _activeCpuSession = null;
+        _closingAfterRestore = true;
+        Close();
+    }
+
+    private sealed record ActiveGameSession(Process Game, string? BackupDirectory, CpuOptimizationSession? Cpu);
 
     private void ShowOverlay_Click(object sender, RoutedEventArgs e) => ShowOverlay();
     private void HideOverlay_Click(object sender, RoutedEventArgs e) => HideOverlay();
@@ -506,7 +596,13 @@ public partial class MainWindow : Window
             start.ArgumentList.Add("create-restore-point"); start.ArgumentList.Add("ProSyS before optimization");
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Helper could not be started.");
             await process.WaitForExitAsync();
-            RestorePointStatusText.Text = process.ExitCode == 0 ? T("Windows restore point created successfully.", "نقطه بازیابی ویندوز با موفقیت ساخته شد.") : T($"Restore point failed (code {process.ExitCode}).", $"ساخت نقطه بازیابی ناموفق بود (کد {process.ExitCode}).");
+            RestorePointStatusText.Text = process.ExitCode switch
+            {
+                0 => T("Windows restore point created and verified.", "نقطه بازیابی ویندوز ساخته و تأیید شد."),
+                3 => T("System Protection is turned off for the system drive; enable it in System Properties to create restore points.", "محافظت سیستم برای درایو ویندوز خاموش است؛ برای ساخت نقطه بازیابی آن را در System Properties فعال کنید."),
+                4 => T("Windows did not create a new restore point because one was created in the last 24 hours.", "ویندوز نقطه بازیابی جدیدی نساخت، چون در ۲۴ ساعت گذشته یکی ساخته شده است."),
+                _ => T($"Restore point failed (code {process.ExitCode}).", $"ساخت نقطه بازیابی ناموفق بود (کد {process.ExitCode}).")
+            };
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { RestorePointStatusText.Text = T("Administrator request was cancelled.", "درخواست دسترسی مدیر لغو شد."); }
     }
@@ -569,14 +665,14 @@ public partial class MainWindow : Window
         public string Name => UiLocalization.Translate(Plan.Name, _persian);
         public string Description => UiLocalization.Translate(Metadata.Description, _persian);
         public string Why => UiLocalization.Translate(Metadata.Why, _persian);
-        public string Summary => Plan.Current.Status == DetectionStatus.Disabled ? UiLocalization.Translate("Already in the recommended state.", _persian) : Description;
+        public string Summary => Plan.Current.Status == DetectionStatus.Compliant ? UiLocalization.Translate("Already in the recommended state.", _persian) : Description;
         public string Risk => _persian ? $"ریسک {(int)Plan.Risk.Level} • {TranslateBenefit(Plan.Benefit)}" : $"RISK {(int)Plan.Risk.Level} • {Plan.Benefit}";
         public string Evidence => _persian ? TranslateEvidence(Metadata.Evidence) : Metadata.Evidence.ToString();
         public string Confidence => _persian ? TranslateConfidence(Metadata.Risk.Confidence) : Metadata.Risk.Confidence.ToString();
         public string Benefit => _persian ? TranslateBenefit(Metadata.Benefit) : Metadata.Benefit.ToString();
         public string Restore => _persian ? "بازگردانی دقیق مقدار ثبت‌شده پیش از تغییر" : Metadata.RollbackMethod;
         public string Compatibility => _persian ? (Plan.Compatibility.Status == CompatibilityStatus.Compatible ? "سازگار" : "ناسازگار") : Plan.Compatibility.Status.ToString();
-        public bool CanSelect => Plan.Compatibility.Status == CompatibilityStatus.Compatible && Plan.Current.Status != DetectionStatus.Disabled;
+        public bool CanSelect => Plan.Compatibility.Status == CompatibilityStatus.Compatible && Plan.Current.Status != DetectionStatus.Compliant;
         public bool IsSelected { get => _selected; set { if (_selected == value || !CanSelect) return; _selected = value; PropertyChanged?.Invoke(this, new(nameof(IsSelected))); } }
         public event PropertyChangedEventHandler? PropertyChanged;
         private static string TranslateBenefit(BenefitLevel value) => value switch { BenefitLevel.None => "بدون اثر", BenefitLevel.Negligible => "ناچیز", BenefitLevel.Low => "کم", BenefitLevel.Moderate => "متوسط", BenefitLevel.PotentiallyHigh => "بالقوه زیاد", _ => "نامشخص" };

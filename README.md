@@ -7,11 +7,11 @@ ProSyS is a local-first Windows 11 gaming diagnostic and optimization applicatio
 - Real Windows, CPU, memory, display-adapter, fixed-drive, power-plan, laptop, Secure Boot and known anti-cheat discovery.
 - Extended local inventory for active network adapters, DNS/gateway data, startup registrations, service counts, top memory-consuming processes and Steam manifests.
 - Evidence- and risk-labeled recommendations; unknown values stay unknown.
-- Deterministic dependency validation and immutable SHA-256-addressed plans.
+- Deterministic dependency validation and SHA-256 integrity-checked plans (a tamper check, not a signature); every selected value is re-detected before mutation so a stale plan is never applied.
 - Dry run with no mutation.
 - Exact original-value backup, disk journal, post-apply verification, automatic failure rollback and idempotent manual rollback.
 - Nine-page WPF control center with dashboard, inventory, recommendations, diagnostics, recovery, settings, benchmark, game profiles and an external live overlay.
-- Persian-first RTL and English/LTR interface switching, bundled Vazirmatn typography, local JSON report export and 180 reversible, current-user Windows 11 capabilities across gaming, input, shell, desktop, accessibility, personalization, search and background-content categories. Only a small evidence-backed core is selected by default; preference changes are explicit opt-in choices.
+- Persian-first RTL and English/LTR interface switching, bundled Vazirmatn typography, local JSON report export and 158 reversible, current-user Windows 11 capabilities across gaming, input, shell, desktop, accessibility, personalization, search and background-content categories. Only a small evidence-backed core is selected by default; preference changes are explicit opt-in choices.
 - Live CPU sampling and a local gateway latency/jitter probe; no remote telemetry or Internet endpoint is contacted.
 - Local CLI; no account, cloud dependency or telemetry.
 - JSON machine-readable scan/audit output and JSONL audit logs.
@@ -25,11 +25,16 @@ ProSyS is a local-first Windows 11 gaming diagnostic and optimization applicatio
 Requirements: Windows 11 and .NET 8 SDK.
 
 ```powershell
+./tools/PresentMon/Get-PresentMon.ps1   # downloads and hash-verifies the Intel binary (not committed)
 dotnet build ProSyS.sln -c Release
 dotnet run --project src/ProSyS.App -c Release
 dotnet run --project src/ProSyS.Cli -c Release -- audit --json
-dotnet run --project tests/ProSyS.Tests -c Release
+dotnet test tests/ProSyS.Tests -c Release
 ```
+
+Without PresentMon the application still builds (with warning `PROSYS001`) and benchmarking reports the tool as missing. Tests that need Windows APIs or PresentMon are skipped automatically elsewhere; CI runs the full suite on `windows-latest`.
+
+Settings stored under `HKCU\Control Panel` (mouse, desktop, accessibility) are read by Windows at sign-in, so those changes are marked as taking effect after sign-out.
 
 Data is stored under `%LOCALAPPDATA%\ProSySOptimizer`. Run `plan` before `optimize --profile safe --confirm`. See [RECOVERY.md](RECOVERY.md) before applying changes.
 

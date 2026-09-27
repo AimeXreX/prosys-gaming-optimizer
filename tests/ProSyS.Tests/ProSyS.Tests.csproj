@@ -1,8 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ProSyS.Core\ProSyS.Core.csproj" />
     <ProjectReference Include="..\..\src\ProSyS.Windows\ProSyS.Windows.csproj" />
-    <ProjectReference Include="..\..\src\ProSyS.App\ProSyS.App.csproj" />
+    <!-- Only the WPF-free translation table is compiled in, so the tests build without the WPF SDK. -->
+    <Compile Include="..\..\src\ProSyS.App\UiLocalization.Translations.cs" Link="Linked\UiLocalization.Translations.cs" />
   </ItemGroup>
 </Project>

@@ -12,7 +12,8 @@ public sealed class OptimizationEngine
     {
         var byId = allTweaks.ToDictionary(x => x.Metadata.Id, StringComparer.OrdinalIgnoreCase);
         ValidatePlan(plan, byId);
-        var selected = plan.Tweaks.Where(x => x.Selected).Select(x => byId[x.TweakId]).ToList();
+        var selected = new DependencyPlanner().Order(plan.Tweaks.Where(x => x.Selected).Select(x => byId[x.TweakId])).ToList();
+        await EnsurePlanIsCurrentAsync(plan, selected, ct);
         var sessionId = Guid.NewGuid();
         var folder = Path.Combine(_dataRoot, "Backups", sessionId.ToString("N"));
         Directory.CreateDirectory(folder);
@@ -39,7 +40,7 @@ public sealed class OptimizationEngine
                 journal = journal with { State = OperationState.Verifying };
                 await SaveJournalAsync(folder, journal, ct);
                 var verification = await tweak.VerifyAsync(ct);
-                var ok = verification.Status == DetectionStatus.Disabled;
+                var ok = verification.Status == DetectionStatus.Compliant;
                 var result = new TweakExecutionResult(tweak.Metadata.Id, ok, ok ? "Applied and verified." : "Verification failed.", verification);
                 results.Add(result);
                 journal.Results.Add(result);
@@ -53,6 +54,8 @@ public sealed class OptimizationEngine
         }
         catch (Exception ex)
         {
+            // Recovery must finish even when the caller cancelled: the original token may already be signalled.
+            ct = CancellationToken.None;
             journal = journal with { State = OperationState.RollbackPending, Error = ex.Message };
             await SaveJournalAsync(folder, journal, ct);
             var recoveryRequired = false;
@@ -80,19 +83,58 @@ public sealed class OptimizationEngine
 
     public async Task<SessionSummary> RollbackAsync(string sessionDirectory, IEnumerable<ITweak> allTweaks, CancellationToken ct = default)
     {
-        var backups = JsonSerializer.Deserialize<Dictionary<string, TweakBackup>>(await File.ReadAllTextAsync(Path.Combine(sessionDirectory, "backups.json"), ct)) ?? new();
+        var backupPath = Path.Combine(sessionDirectory, "backups.json");
+        // Values are only changed after backups.json is written, so a session without it changed nothing and can simply be closed.
+        var backups = File.Exists(backupPath)
+            ? JsonSerializer.Deserialize<Dictionary<string, TweakBackup>>(await File.ReadAllTextAsync(backupPath, ct)) ?? new()
+            : new Dictionary<string, TweakBackup>();
         var byId = allTweaks.ToDictionary(x => x.Metadata.Id, StringComparer.OrdinalIgnoreCase);
         var results = new List<TweakExecutionResult>();
         foreach (var pair in backups.Reverse())
         {
-            if (!byId.TryGetValue(pair.Key, out var tweak)) continue;
-            await tweak.RollbackAsync(pair.Value, ct);
-            var verification = await tweak.VerifyRollbackAsync(pair.Value, ct);
-            var ok = BackupMatches(pair.Value, verification);
-            results.Add(new(pair.Key, ok, ok ? "Original state restored." : "Rollback verification failed.", verification));
+            if (!byId.TryGetValue(pair.Key, out var tweak))
+            {
+                results.Add(new(pair.Key, false, "The capability is no longer in the catalog; restore this value manually.", null));
+                continue;
+            }
+            try
+            {
+                await tweak.RollbackAsync(pair.Value, CancellationToken.None);
+                var verification = await tweak.VerifyRollbackAsync(pair.Value, CancellationToken.None);
+                var ok = BackupMatches(pair.Value, verification);
+                results.Add(new(pair.Key, ok, ok ? "Original state restored." : "Rollback verification failed.", verification));
+            }
+            catch (Exception ex) { results.Add(new(pair.Key, false, "Rollback failed: " + ex.Message, null)); }
         }
         var state = results.All(x => x.Success) ? OperationState.RolledBack : OperationState.RecoveryRequired;
-        return new(Guid.Parse(Path.GetFileName(sessionDirectory)), state, sessionDirectory, results);
+        var sessionId = Guid.TryParse(Path.GetFileName(sessionDirectory), out var parsed) ? parsed : Guid.Empty;
+        var journalPath = Path.Combine(sessionDirectory, "journal.json");
+        SessionJournal journal;
+        try { journal = JsonSerializer.Deserialize<SessionJournal>(await File.ReadAllTextAsync(journalPath, CancellationToken.None)) ?? throw new InvalidDataException(); }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidDataException) { journal = new(sessionId, Guid.Empty, state, DateTimeOffset.UtcNow, new()); }
+        journal.Results.AddRange(results);
+        await SaveJournalAsync(sessionDirectory, journal with { State = state, Error = state == OperationState.RolledBack ? null : "Manual rollback could not verify every value." }, CancellationToken.None);
+        await _log.WriteAsync(new { correlationId = sessionId, operation = "manual-rollback", result = state.ToString() }, CancellationToken.None);
+        return new(sessionId, state, sessionDirectory, results);
+    }
+
+    /// <summary>Returns the newest session (by journal creation time) that has a captured backup, or null.</summary>
+    public string? FindLatestRestorableSession()
+    {
+        var backupRoot = Path.Combine(_dataRoot, "Backups");
+        if (!Directory.Exists(backupRoot)) return null;
+        return new DirectoryInfo(backupRoot).GetDirectories()
+            .Where(x => File.Exists(Path.Combine(x.FullName, "backups.json")))
+            .Select(x => (x.FullName, CreatedAt: ReadCreatedAt(x)))
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => x.FullName)
+            .FirstOrDefault();
+    }
+
+    private static DateTimeOffset ReadCreatedAt(DirectoryInfo folder)
+    {
+        try { return JsonSerializer.Deserialize<SessionJournal>(File.ReadAllText(Path.Combine(folder.FullName, "journal.json")))?.CreatedAt ?? folder.CreationTimeUtc; }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { return folder.CreationTimeUtc; }
     }
 
     private static Task SaveJournalAsync(string folder, SessionJournal journal, CancellationToken ct) =>
@@ -129,30 +171,39 @@ public sealed class OptimizationEngine
         foreach (var item in plan.Tweaks.Where(x => x.Selected))
         {
             if (!catalog.ContainsKey(item.TweakId)) throw new InvalidOperationException($"PlanValidation: unknown tweak {item.TweakId}.");
-            if (item.Compatibility.Status != CompatibilityStatus.Compatible || item.Current.Status == DetectionStatus.Disabled)
+            if (item.Compatibility.Status != CompatibilityStatus.Compatible || item.Current.Status == DetectionStatus.Compliant)
                 throw new InvalidOperationException($"PlanValidation: {item.TweakId} is not applicable.");
+        }
+    }
+
+    /// <summary>Detects every selected capability again so a plan built from an older state is never applied.</summary>
+    private static async Task EnsurePlanIsCurrentAsync(OptimizationPlan plan, IEnumerable<ITweak> selected, CancellationToken ct)
+    {
+        var planned = plan.Tweaks.ToDictionary(x => x.TweakId, StringComparer.OrdinalIgnoreCase);
+        foreach (var tweak in selected)
+        {
+            var current = await tweak.DetectAsync(ct);
+            var expected = planned[tweak.Metadata.Id].Current;
+            if (current.Status != expected.Status || !string.Equals(ValueText.Canonical(current.Value), ValueText.Canonical(expected.Value), StringComparison.Ordinal))
+                throw new InvalidOperationException($"PlanValidation: {tweak.Metadata.Id} changed after the plan was created. Scan again before applying.");
         }
     }
 
     private static bool BackupMatches(TweakBackup backup, DetectionResult verification)
     {
         if (!backup.ValueExisted) return verification.Status == DetectionStatus.Unknown && verification.Value is null;
-        return string.Equals(Normalize(backup.OriginalValue), Normalize(verification.Value), StringComparison.Ordinal);
+        return string.Equals(ValueText.Canonical(backup.OriginalValue, backup.ValueKind), ValueText.Canonical(verification.Value, backup.ValueKind), StringComparison.Ordinal);
     }
 
-    private static string? Normalize(object? value) => value is JsonElement element ? element.ValueKind switch
-    {
-        JsonValueKind.String => element.GetString(),
-        JsonValueKind.Number => element.GetRawText(),
-        JsonValueKind.True => "True",
-        JsonValueKind.False => "False",
-        JsonValueKind.Null => null,
-        _ => element.GetRawText()
-    } : value?.ToString();
-    private static async Task WriteJsonAtomicAsync<T>(string path, T value, CancellationToken ct)
+    internal static async Task WriteJsonAtomicAsync<T>(string path, T value, CancellationToken ct)
     {
         var temp = path + ".tmp";
-        await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(value, JsonOptions), ct);
+        await using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+        {
+            await JsonSerializer.SerializeAsync(stream, value, JsonOptions, ct);
+            await stream.FlushAsync(ct);
+            stream.Flush(flushToDisk: true);
+        }
         File.Move(temp, path, true);
     }
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };

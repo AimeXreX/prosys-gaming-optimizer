@@ -8,10 +8,13 @@ public sealed record SignedUpdateManifest(string Version, string PackageUrl, str
 
 public static class SecureUpdateVerifier
 {
-    public static SignedUpdateManifest ParseAndVerify(string json, string publicKeyPem)
+    /// <param name="installedVersion">When supplied, a manifest that is not strictly newer is rejected (downgrade/replay protection).</param>
+    public static SignedUpdateManifest ParseAndVerify(string json, string publicKeyPem, Version? installedVersion = null)
     {
         var manifest = JsonSerializer.Deserialize<SignedUpdateManifest>(json) ?? throw new InvalidDataException("Update manifest is empty.");
-        if (!Version.TryParse(manifest.Version, out _)) throw new InvalidDataException("Update version is invalid.");
+        if (manifest is { Version: null } or { PackageUrl: null } or { Sha256: null } or { Signature: null }) throw new InvalidDataException("Update manifest is incomplete.");
+        if (!Version.TryParse(manifest.Version, out var offered)) throw new InvalidDataException("Update version is invalid.");
+        if (installedVersion is not null && offered <= installedVersion) throw new InvalidDataException($"Update version {offered} is not newer than the installed version {installedVersion}.");
         if (!Uri.TryCreate(manifest.PackageUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) throw new InvalidDataException("Update package must use HTTPS.");
         if (manifest.Sha256.Length != 64 || !manifest.Sha256.All(Uri.IsHexDigit)) throw new InvalidDataException("Package SHA-256 is invalid.");
         byte[] signature;
