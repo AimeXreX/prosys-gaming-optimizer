@@ -169,6 +169,10 @@ public class GameSessionTests
     {
         var start = new ProcessStartInfo("ping.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
         foreach (var argument in new[] { "-n", "60", "127.0.0.1" }) start.ArgumentList.Add(argument);
-        return Process.Start(start) ?? throw new InvalidOperationException("Child process could not be started.");
+        var child = Process.Start(start) ?? throw new InvalidOperationException("Child process could not be started.");
+        // A child inherits the parent's priority class, and CpuPriorityUsesAboveNormalAndRestoresExactly raises the test process
+        // while other test classes run in parallel. Pin the child to Normal so the throttling assertions do not depend on timing.
+        child.PriorityClass = ProcessPriorityClass.Normal;
+        return child;
     }
 }
