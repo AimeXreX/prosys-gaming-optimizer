@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.4.0
+
+The game sessions now run on their own, and every boost is either measured or restored.
+
+- Added: **Background agent** (`ProSyS.Agent.exe`, system tray).
+  - Detects profiled games by process name. Detects unprofiled games in Steam, Epic, Xbox, EA, Riot, Ubisoft and GOG libraries when they show a window; launchers, crash handlers and anti-cheat helpers are ignored.
+  - Applies the profile and restores it when the game exits. Unprofiled games get a conservative auto profile: the high-performance power plan, Above normal priority, background EcoQoS, and the GPU choice for the next launch.
+  - Offers Start with Windows (per user), Restore everything now, and Persian/English. The control center starts the agent automatically.
+- Added: **Shared game-session manager.** The control center and the agent hold one exclusive session lock, so a game is never optimized twice. Every persistent step is journaled before the next one, and an interrupted session is restored on the next start.
+- Added: **Background EcoQoS while playing.** An explicit allowlist of browsers, sync clients and launchers gets EcoQoS and Below normal priority, restored only when the PID and creation time still match. Voice chat, recording/streaming tools, security software and Windows components are never touched.
+- Added: **Prefer performance cores** (opt-in) on hybrid CPUs through documented CPU sets, restored exactly. It is skipped on non-hybrid CPUs and when anti-cheat denies access.
+- Added: **Automatic A/B test.** It alternates baseline and optimized PresentMon captures (A-B, B-A, …) and uses the existing Welch 95% comparison. Captures are added to the benchmark history.
+- Added: **FPS advisor checks** for disabled MPO (legacy `OverlayTestMode = 5` workaround), Memory Integrity (informational; never changed) and hybrid CPUs.
+- Added: **ProSyS logo** for the app, taskbar, tray, installer and README. The title bar now blends with the dark theme.
+- Changed: when the agent detects a game that is already running, the per-game GPU preference is applied as a separate kept change for the next launch, because Windows reads it only at start. It can be undone from History & Backups.
+
 ## 1.3.0
 
 FPS-focused additions. Each one maps to a documented Windows setting, is opt-in, and is restored exactly by rollback.

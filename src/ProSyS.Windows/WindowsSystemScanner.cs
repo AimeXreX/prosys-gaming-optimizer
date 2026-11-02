@@ -43,6 +43,20 @@ public sealed class WindowsSystemScanner : ISystemScanner
             gpus, drives, laptop, secureBoot, GetPowerPlan(), antiCheat, insights);
     }
 
+    /// <summary>A fast snapshot for background game sessions: no network probes, process enumeration or CPU sampling.</summary>
+    public static MachineSnapshot CaptureLightweight()
+    {
+        var build = Environment.OSVersion.Version.Build;
+        var cpu = ReadString(Registry.LocalMachine, @"HARDWARE\DESCRIPTION\System\CentralProcessor\0", "ProcessorNameString")?.Trim() ?? "Unknown";
+        var memory = new MemoryStatusEx { dwLength = (uint)Marshal.SizeOf<MemoryStatusEx>() };
+        _ = GlobalMemoryStatusEx(ref memory);
+        var laptop = GetSystemPowerStatus(out var power) && power.BatteryFlag is not (128 or 255);
+        var machineHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{Environment.MachineName}|{cpu}|{build}"))).ToLowerInvariant()[..16];
+        return new MachineSnapshot($"{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{machineHash}", DateTimeOffset.UtcNow, machineHash, "Windows",
+            Environment.OSVersion.Version.ToString(), build, RuntimeInformation.OSArchitecture.ToString(), cpu, Environment.ProcessorCount,
+            memory.ullTotalPhys, ScanGpus(), Array.Empty<DriveInfoSnapshot>(), laptop, false, "Not sampled", DetectAntiCheat());
+    }
+
     private static async Task<NetworkQualitySnapshot?> ProbeGatewayAsync(IReadOnlyList<NetworkAdapterSnapshot> adapters, CancellationToken ct)
     {
         var target = adapters.FirstOrDefault(x => x.Status == OperationalStatus.Up.ToString() && x.Gateway != "—")?.Gateway;

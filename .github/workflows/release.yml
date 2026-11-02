@@ -59,7 +59,7 @@ jobs:
       - name: Verify published payload
         shell: pwsh
         run: |
-          foreach ($file in 'ProSyS.App.exe', 'Tools/PresentMon/PresentMon.exe', 'ProSyS.PrivilegedHelper.exe', 'System.Management.dll', 'coreclr.dll') {
+          foreach ($file in 'ProSyS.App.exe', 'ProSyS.Agent.exe', 'Tools/PresentMon/PresentMon.exe', 'ProSyS.PrivilegedHelper.exe', 'System.Management.dll', 'coreclr.dll') {
             if (-not (Test-Path (Join-Path 'artifacts/app' $file))) { throw "Missing $file in the published app." }
           }
 

@@ -147,6 +147,12 @@ public sealed partial class UiLocalization
         ["A 120–240 Hz monitor left at 60 Hz caps what you see at 60 frames per second no matter how fast the game renders."] = "مانیتور ۱۲۰ تا ۲۴۰ هرتزی که روی ۶۰ هرتز مانده، هر قدر هم بازی سریع رندر کند، تصویر را به ۶۰ فریم در ثانیه محدود می‌کند.",
         ["Use the high-performance GPU for this game (laptops with two GPUs)"] = "استفاده از GPU پرقدرت برای این بازی (لپ‌تاپ‌های دارای دو کارت گرافیک)",
         ["Baseline run (before applying changes)"] = "اجرای پایه (پیش از اعمال تغییرات)",
+        ["BACKGROUND AGENT"] = "عامل پس‌زمینه",
+        ["Runs in the system tray, detects games automatically, applies their profile and restores everything when they close. It works even when this window is closed."] = "در سینی سیستم اجرا می‌شود، بازی‌ها را خودکار تشخیص می‌دهد، پروفایلشان را اعمال می‌کند و پس از بستن بازی همه‌چیز را برمی‌گرداند. حتی وقتی این پنجره بسته است کار می‌کند.",
+        ["Start the agent with Windows"] = "اجرای عامل همراه با ویندوز", ["START AGENT"] = "اجرای عامل",
+        ["AUTOMATIC A/B TEST"] = "آزمون خودکار A/B",
+        ["Stand still in a repeatable scene, then run. ProSyS alternates baseline (A) and optimized (B) captures and reports an improvement only when it is larger than the run-to-run noise (95% confidence)."] = "در یک صحنه ثابت و تکرارپذیر بایستید و اجرا کنید. ProSyS به‌تناوب حالت پایه (A) و بهینه (B) را ثبت می‌کند و فقط وقتی بهبود را اعلام می‌کند که از نوسان طبیعی اجراها بزرگ‌تر باشد (اطمینان ۹۵٪).",
+        ["Runs per side"] = "تعداد اجرا برای هر حالت", ["RUN A/B TEST"] = "اجرای آزمون A/B", ["No A/B test has been run yet."] = "هنوز آزمون A/B اجرا نشده است.",
     };
 
     private static readonly (string English, string Persian)[] GeneratedTerms =

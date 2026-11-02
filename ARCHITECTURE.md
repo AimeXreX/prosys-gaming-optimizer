@@ -5,6 +5,8 @@
 - `ProSyS.Core`: dependency-free domain records, risk policy, graph planner, integrity-checked plan factory and transactional execution engine.
 - `ProSyS.Windows`: Windows discovery, allowlisted registry tweak adapter, tweak catalog and structured local audit logging.
 - `ProSyS.App`: non-elevated WPF presentation shell.
+- `ProSyS.Agent`: non-elevated tray agent (WinForms `NotifyIcon`) that polls the process list, starts and ends game sessions and recovers interrupted ones.
+- `ProSyS.Windows/GameSession`: the game-session manager (journal and exclusive lock), process-level boosts (background EcoQoS, hybrid-CPU CPU sets), game detection and the A/B runner.
 - `ProSyS.Cli`: scan, audit, plan, explicit safe apply and rollback entry points.
 - `ProSyS.Tests`: xUnit unit tests plus isolated HKCU/Windows integration tests (skipped automatically off Windows). It compiles only the WPF-free `UiLocalization.Translations.cs`, not the WPF app.
 
@@ -13,5 +15,19 @@ The direction of dependencies is UI/CLI → Windows → Core. Core never invokes
 ## Transaction sequence
 
 Scanner → compatibility → dependency order → hashed plan → re-detect selected values (stale-plan guard) → backup all selected tweaks → persist backup → apply one tweak → read-back verify → append audit → complete. Any exception transitions the journal to `RollbackPending`; successfully backed-up operations are restored in reverse order. A failed restore produces `RecoveryRequired`.
+
+## Game session sequence
+
+1. Detect the game.
+2. Acquire the exclusive `Sessions\session.lock`, which the app and the agent share.
+3. Recover any leftover journal.
+4. Apply the profile plan through the transactional engine. This includes the power plan, refresh rate and the GPU preference when ProSyS launches the game.
+5. Journal, then obtain the game process. If the game never starts, the plan is rolled back.
+6. Apply Above normal priority and CPU sets.
+7. Throttle allowlisted background apps, then journal.
+
+While the game runs, newly started allowlisted apps are throttled and journaled every 20 s. When the game exits, everything is restored in reverse order, the journal is deleted and the lock is released.
+
+Restores are guarded: a throttled process is restored only when both its PID and its creation time match. Process handles use the narrowest rights (`PROCESS_QUERY_LIMITED_INFORMATION`, `PROCESS_SET_LIMITED_INFORMATION`, `PROCESS_SET_INFORMATION`). A protected or anti-cheat game that denies access is skipped, never forced.
 
 The privileged-service boundary is designed but deliberately not installed in MVP-0 because no current tweak requires elevation. Future elevated operations must use a versioned, authenticated named-pipe protocol with a fixed operation enum and server-side parameter validation—never arbitrary commands, paths, registry keys or scripts.

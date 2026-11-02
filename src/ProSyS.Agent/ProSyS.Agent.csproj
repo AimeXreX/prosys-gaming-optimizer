@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><UseWindowsForms>true</UseWindowsForms><ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode><ApplicationIcon>..\ProSyS.App\Assets\Brand\prosys.ico</ApplicationIcon></PropertyGroup>
+  <ItemGroup><EmbeddedResource Include="..\ProSyS.App\Assets\Brand\prosys.ico" LogicalName="ProSyS.Agent.prosys.ico" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProSyS.Core\ProSyS.Core.csproj" />
+    <ProjectReference Include="..\ProSyS.Windows\ProSyS.Windows.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,6 +1,6 @@
 #define AppName "ProSyS Gaming Optimizer"
 #ifndef AppVersion
-  #define AppVersion "1.3.0"
+  #define AppVersion "1.4.0"
 #endif
 #ifndef SourceRoot
   #define SourceRoot "..\artifacts\app"
@@ -24,6 +24,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.22000
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\ProSyS.App.exe
+SetupIconFile=..\src\ProSyS.App\Assets\Brand\prosys.ico
 UninstallDisplayName={#AppName}
 WizardStyle=modern
 CloseApplications=yes
@@ -44,12 +45,18 @@ Source: "{#SourceRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Name: "{group}\{#AppName}"; Filename: "{app}\ProSyS.App.exe"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\ProSyS.App.exe"; Tasks: desktopicon
+Name: "{group}\ProSyS Background Agent"; Filename: "{app}\ProSyS.Agent.exe"
 
 [Run]
 ; PresentMon's ETW capture needs administrator rights or the built-in Performance Log Users group (SID S-1-5-32-559, name is localized).
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""try {{ Add-LocalGroupMember -SID 'S-1-5-32-559' -Member ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -ErrorAction Stop } catch {{ }"""; Flags: runhidden waituntilterminated; Tasks: perflog; StatusMsg: "Configuring benchmark permissions..."
+; The agent and the app run as the signed-in user (not elevated) so optimizations apply to that user's settings.
+Filename: "{app}\ProSyS.Agent.exe"; Description: "Start the background game agent (detects games and optimizes them automatically)"; Flags: nowait postinstall skipifsilent runasoriginaluser
 ; Launch as the signed-in user (not elevated) so optimizations apply to that user's settings.
 Filename: "{app}\ProSyS.App.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+
+[UninstallRun]
+Filename: "{sys}\taskkill.exe"; Parameters: "/im ProSyS.Agent.exe /f"; Flags: runhidden; RunOnceId: "StopAgent"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\Tools"

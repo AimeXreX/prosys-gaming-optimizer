@@ -1,4 +1,4 @@
-
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -14,6 +14,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProSyS.Tests", "tests\ProSyS.Tests\ProSyS.Tests.csproj", "{11000000-0000-0000-0000-000000000005}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProSyS.PrivilegedHelper", "src\ProSyS.PrivilegedHelper\ProSyS.PrivilegedHelper.csproj", "{11000000-0000-0000-0000-000000000006}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{2CC6DCFE-F0B5-4926-8841-47E97339DDE9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProSyS.Agent", "src\ProSyS.Agent\ProSyS.Agent.csproj", "{535EFFD9-087A-4138-80D1-0BD63A7BCB83}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -45,5 +49,12 @@ Global
 		{11000000-0000-0000-0000-000000000006}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{11000000-0000-0000-0000-000000000006}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{11000000-0000-0000-0000-000000000006}.Release|Any CPU.Build.0 = Release|Any CPU
+		{535EFFD9-087A-4138-80D1-0BD63A7BCB83}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{535EFFD9-087A-4138-80D1-0BD63A7BCB83}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{535EFFD9-087A-4138-80D1-0BD63A7BCB83}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{535EFFD9-087A-4138-80D1-0BD63A7BCB83}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{535EFFD9-087A-4138-80D1-0BD63A7BCB83} = {2CC6DCFE-F0B5-4926-8841-47E97339DDE9}
 	EndGlobalSection
 EndGlobal

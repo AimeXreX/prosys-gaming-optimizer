@@ -1,14 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><UseWPF>true</UseWPF></PropertyGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><UseWPF>true</UseWPF><ApplicationIcon>Assets\Brand\prosys.ico</ApplicationIcon></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProSyS.Core\ProSyS.Core.csproj" />
     <ProjectReference Include="..\ProSyS.Windows\ProSyS.Windows.csproj" />
     <ProjectReference Include="..\ProSyS.PrivilegedHelper\ProSyS.PrivilegedHelper.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ProSyS.Agent\ProSyS.Agent.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\Fonts\Vazirmatn-Regular.ttf" />
     <Resource Include="Assets\Fonts\Vazirmatn-SemiBold.ttf" />
     <Resource Include="Assets\Fonts\Vazirmatn-Bold.ttf" />
+    <Resource Include="Assets\Brand\prosys.ico" />
+    <Resource Include="Assets\Brand\prosys-mark.png" />
     <Content Include="Assets\Fonts\OFL.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
   </ItemGroup>
   <ItemGroup>
@@ -24,9 +27,13 @@
     <!-- Copy the helper together with its dependencies (System.Management and its runtime assets). -->
     <ItemGroup><PrivilegedHelperFiles Include="..\ProSyS.PrivilegedHelper\bin\$(Configuration)\net8.0-windows10.0.22621.0\**\*" /></ItemGroup>
     <Copy SourceFiles="@(PrivilegedHelperFiles)" DestinationFiles="@(PrivilegedHelperFiles->'$(OutDir)Tools\PrivilegedHelper\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <!-- The background agent runs from the app folder so it can open the control center and share the Core/Windows assemblies. -->
+    <ItemGroup><AgentFiles Include="..\ProSyS.Agent\bin\$(Configuration)\net8.0-windows10.0.22621.0\ProSyS.Agent.*" /></ItemGroup>
+    <Copy SourceFiles="@(AgentFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="PublishPrivilegedHelper" AfterTargets="Publish">
     <!-- Publish the helper next to ProSyS.App.exe so a self-contained release shares one copy of the .NET runtime. -->
     <MSBuild Projects="..\ProSyS.PrivilegedHelper\ProSyS.PrivilegedHelper.csproj" Targets="Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$([System.IO.Path]::GetFullPath('$(PublishDir)'))" />
+    <MSBuild Projects="..\ProSyS.Agent\ProSyS.Agent.csproj" Targets="Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$([System.IO.Path]::GetFullPath('$(PublishDir)'))" />
   </Target>
 </Project>

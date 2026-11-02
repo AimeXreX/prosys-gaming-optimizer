@@ -13,6 +13,7 @@ using System.Windows.Interop;
 using System.Windows.Input;
 using ProSyS.Core;
 using ProSyS.Windows;
+using ProSyS.Windows.GameSession;
 
 namespace ProSyS.App;
 
@@ -30,6 +31,9 @@ public partial class MainWindow : Window
     private readonly UiLocalization _localization = new();
     private readonly CheckBox _profileCpuPriorityCheck = new() { IsChecked = false, Margin = new Thickness(0, 8, 0, 8) };
     private readonly CheckBox _profileGpuCheck = new() { IsChecked = true, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly CheckBox _profileThrottleCheck = new() { IsChecked = true, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly CheckBox _profileCoresCheck = new() { IsChecked = false, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly GameSessionManager _sessions;
     private IReadOnlyList<PerformanceAdvice> _advice = Array.Empty<PerformanceAdvice>();
     private readonly Button _cpuBoostButton = new() { Margin = new Thickness(0, 4, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
     private CpuOptimizationSession? _activeCpuSession;
@@ -46,6 +50,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         Directory.CreateDirectory(_root);
         _profileStore = new GameProfileStore(_root);
+        _sessions = new GameSessionManager(_root, _tweaks, _rollbackTweaks, new JsonAuditLog(Path.Combine(_root, "Logs", "audit.jsonl")));
         DataPathText.Text = _root;
         RecommendationsList.ItemsSource = _recommendations;
         BackupsList.ItemsSource = _backups;
@@ -55,6 +60,8 @@ public partial class MainWindow : Window
         if (ProfileOverlayCheck.Parent is Panel profileOptions)
         {
             profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _profileGpuCheck);
+            profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _profileThrottleCheck);
+            profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _profileCoresCheck);
             profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _profileCpuPriorityCheck);
             _cpuBoostButton.Style = (Style)FindResource("SecondaryButton");
             _cpuBoostButton.Click += CpuBoost_Click;
@@ -80,6 +87,12 @@ public partial class MainWindow : Window
         PresentMonTrustText.Text = trust.Trusted
             ? T("Verified: PresentMon 2.6.0 matches the pinned SHA-256 of the official release.", "تأیید شد: PresentMon نسخه ۲.۶.۰ با هش ثابت نسخه رسمی مطابقت دارد.")
             : T(trust.Message, "ابزار بنچمارک قابل اعتماد نیست: " + trust.Message);
+        var recovered = await _sessions.RecoverAsync();
+        if (recovered.Count > 0) GameSessionStatusText.Text = T("Recovered an interrupted game session: ", "یک نشست بازی ناتمام بازیابی شد: ") + string.Join(" • ", recovered.Select(x => x.Text(_persian)));
+        // The agent is what lets ProSyS optimize games on its own; keep it running whenever the control center opens.
+        try { AgentAutostart.TryStart(AgentAutostart.DefaultAgentPath); }
+        catch (System.ComponentModel.Win32Exception) { }
+        RefreshAgentStatus();
         var incomplete = Engine().FindIncompleteSessions();
         if (incomplete.Count > 0)
         {
@@ -335,6 +348,8 @@ public partial class MainWindow : Window
         _localization.Apply(RootLayout, _persian);
         LanguageButton.Content = _persian ? "EN" : "فارسی";
         _profileGpuCheck.Content = T("Use the high-performance GPU for this game (laptops with two GPUs)", "استفاده از GPU پرقدرت برای این بازی (لپ‌تاپ‌های دارای دو کارت گرافیک)");
+        _profileThrottleCheck.Content = T("Throttle browsers, sync clients and launchers while playing (EcoQoS; restored on exit)", "محدودسازی مرورگرها، همگام‌سازها و لانچرها در زمان بازی (EcoQoS؛ پس از خروج بازگردانده می‌شود)");
+        _profileCoresCheck.Content = T("Prefer performance cores on hybrid Intel CPUs (confirm with the A/B test)", "اولویت هسته‌های قدرتمند در پردازنده‌های هیبریدی Intel (با آزمون A/B بسنجید)");
         RenderAdvice();
         _profileCpuPriorityCheck.Content = T("Raise game priority to Above normal (never High or Realtime; not allowed by some anti-cheat)", "افزایش اولویت بازی به Above normal (هرگز High یا Realtime؛ برخی ضدتقلب‌ها اجازه نمی‌دهند)");
         _cpuBoostButton.Content = T("ATTACH CPU BOOST TO THE RUNNING GAME", "اتصال تقویت پردازنده به بازی در حال اجرا");
@@ -443,7 +458,8 @@ public partial class MainWindow : Window
             _ => _tweaks.Where(x => x.Metadata.Category != "Preferences").Select(x => x.Metadata.Id).ToArray()
         };
         var current = GameProfilesList.SelectedItem as GameProfile;
-        var profile = new GameProfile(current?.Id ?? Guid.NewGuid(), name, process, path, kind, ids, ProfileRestoreCheck.IsChecked == true, ProfileOverlayCheck.IsChecked == true, DateTimeOffset.UtcNow, _profileCpuPriorityCheck.IsChecked == true, _profileGpuCheck.IsChecked == true);
+        var profile = new GameProfile(current?.Id ?? Guid.NewGuid(), name, process, path, kind, ids, ProfileRestoreCheck.IsChecked == true, ProfileOverlayCheck.IsChecked == true, DateTimeOffset.UtcNow, _profileCpuPriorityCheck.IsChecked == true, _profileGpuCheck.IsChecked == true,
+            _profileThrottleCheck.IsChecked == true, _profileCoresCheck.IsChecked == true);
         if (current is not null) _gameProfiles[_gameProfiles.IndexOf(current)] = profile; else _gameProfiles.Add(profile);
         await _profileStore.SaveAsync(_gameProfiles);
         GameProfilesList.SelectedItem = profile;
@@ -455,6 +471,7 @@ public partial class MainWindow : Window
         if (GameProfilesList.SelectedItem is not GameProfile profile) return;
         ProfileNameText.Text = profile.Name; ProfileProcessText.Text = profile.GameProcess; ProfilePathText.Text = profile.ExecutablePath ?? string.Empty;
         ProfileKindBox.SelectedIndex = Math.Clamp((int)profile.Profile, 0, 2); ProfileRestoreCheck.IsChecked = profile.RestoreOnExit; ProfileOverlayCheck.IsChecked = profile.OverlayEnabled; _profileCpuPriorityCheck.IsChecked = profile.CpuPriorityEnabled; _profileGpuCheck.IsChecked = profile.HighPerformanceGpu;
+        _profileThrottleCheck.IsChecked = profile.ThrottleBackground; _profileCoresCheck.IsChecked = profile.PreferPerformanceCores;
     }
 
     private void CpuBoost_Click(object sender, RoutedEventArgs e)
@@ -506,52 +523,83 @@ public partial class MainWindow : Window
         await RunBusyAsync(T("PREPARING GAME SESSION", "در حال آماده‌سازی نشست بازی"), async () =>
         {
             var snapshot = await _scanner.ScanAsync();
-            var sessionTweaks = _tweaks.ToList();
-            var selectedIds = profile.TweakIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            // The GPU preference is keyed by the executable path and is read when the game starts.
+            // The GPU preference is keyed by the executable path and is read when the game starts, so the profile is applied before launch.
             var executable = profile.ExecutablePath ?? TryGetExecutablePath(runningGame);
-            if (profile.HighPerformanceGpu && executable is not null)
+            var session = await _sessions.StartAsync(profile, snapshot, executable,
+                _ => runningGame is not null ? Task.FromResult(runningGame) : StartAndFindGameAsync(profile.ExecutablePath!, processBaseName),
+                gameAlreadyRunning: runningGame is not null);
+            if (session is null)
             {
-                var gpuTweak = TweakCatalog.CreateGpuPreferenceTweak(executable);
-                sessionTweaks.Add(gpuTweak);
-                selectedIds.Add(gpuTweak.Metadata.Id);
+                GameSessionStatusText.Text = T("The background agent is already optimizing a game session.", "عامل پس‌زمینه از قبل در حال بهینه‌سازی یک نشست بازی است.");
+                return;
             }
-            var basePlan = await new PlanFactory().CreateAsync(snapshot, sessionTweaks);
-            var plan = new PlanFactory().Select(basePlan, selectedIds);
-            SessionSummary? result = null;
-            if (plan.Tweaks.Any(x => x.Selected))
-            {
-                result = await Engine().ExecuteAsync(plan, sessionTweaks);
-                if (result.State != OperationState.Completed) throw new InvalidOperationException(T("The game was not started because profile changes could not be verified.", "بازی اجرا نشد چون تغییرات پروفایل تأیید نشدند."));
-            }
-            Process game;
-            try
-            {
-                game = runningGame ?? await StartAndFindGameAsync(profile.ExecutablePath!, processBaseName);
-            }
-            catch
-            {
-                // The game never appeared: undo the profile changes immediately instead of waiting for an exit that will not come.
-                if (result is not null) await Engine().RollbackAsync(result.BackupDirectory, _rollbackTweaks, default, TweakCatalog.ResolveDynamic);
-                throw;
-            }
-            CpuOptimizationSession? cpuSession = null;
-            var cpuNote = string.Empty;
-            if (profile.CpuPriorityEnabled)
-            {
-                // A refused priority change (anti-cheat) must not stop the session: the registry profile is already applied.
-                try { cpuSession = new ProcessCpuOptimizer().Apply(game); cpuNote = T(" Priority: Above normal.", " اولویت: Above normal."); }
-                catch (InvalidOperationException ex) { cpuNote = " " + T(ex.Message, "اولویت بازی تغییر نکرد؛ احتمالاً ضدتقلب اجازه نمی‌دهد."); }
-            }
+            var game = session.Game;
             if (profile.OverlayEnabled) ShowOverlay();
-            var changed = result?.Results.Count ?? 0;
-            GameSessionStatusText.Text = T($"{profile.Name} is running (PID {game.Id}). {changed} changes verified.", $"{profile.Name} در حال اجراست (پردازش {game.Id})؛ {changed} تغییر تأیید شد.") + cpuNote;
-            var session = new ActiveGameSession(game, profile.RestoreOnExit ? result?.BackupDirectory : null, cpuSession);
+            GameSessionStatusText.Text = $"{profile.Name} (PID {game.Id})\n" + string.Join("\n", session.StartOutcomes.Select(FormatOutcome)) +
+                (session.ThrottledCount > 0 ? "\n" + T($"✓ {session.ThrottledCount} background apps throttled", $"✓ {session.ThrottledCount} برنامه پس‌زمینه محدود شد") : string.Empty);
             _activeGameSessions.Add(session);
             game.EnableRaisingEvents = true;
             game.Exited += (_, _) => Dispatcher.InvokeAsync(() => EndGameSessionAsync(session, gameExited: true));
             if (game.HasExited) await EndGameSessionAsync(session, gameExited: true);
         });
+    }
+
+    private string FormatOutcome(LeverOutcome outcome) => (outcome.Status switch { LeverStatus.Applied => "✓ ", LeverStatus.AlreadyOptimal => "• ", LeverStatus.Skipped => "– ", _ => "⚠ " }) + outcome.Text(_persian);
+
+    private async void RunAbTest_Click(object sender, RoutedEventArgs e)
+    {
+        var processName = Path.GetFileName(BenchmarkProcessText.Text.Trim());
+        if (!processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) processName += ".exe";
+        var game = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(processName)).FirstOrDefault(x => !x.HasExited);
+        if (game is null) { MessageBox.Show(T("Start the game and enter a repeatable scene first.", "ابتدا بازی را اجرا کنید و در یک صحنه ثابت و تکرارپذیر قرار بگیرید."), "ProSyS"); return; }
+        if (_activeGameSessions.Count > 0) { MessageBox.Show(T("End the active game session first.", "ابتدا نشست بازی فعال را پایان دهید."), "ProSyS"); return; }
+        // The GPU choice only takes effect at launch, so it is not part of an in-game A/B comparison.
+        var profile = (_gameProfiles.FirstOrDefault(x => x.GameProcess.Equals(processName, StringComparison.OrdinalIgnoreCase)) ?? GameDetector.CreateAutoProfile(processName, null)) with { HighPerformanceGpu = false };
+        var duration = int.TryParse((BenchmarkDuration.SelectedItem as ComboBoxItem)?.Content?.ToString(), out var seconds) ? seconds : 30;
+        var runs = int.TryParse((AbRunsBox.SelectedItem as ComboBoxItem)?.Content?.ToString(), out var r) ? r : BenchmarkEngine.MinimumRunsPerSide;
+        ActiveGameSession? session = null;
+        await RunBusyAsync(T("RUNNING A/B TEST", "در حال اجرای آزمون A/B"), async () =>
+        {
+            var snapshot = _snapshot ?? await _scanner.ScanAsync();
+            var progress = new Progress<string>(step => AbResultText.Text = T($"Capturing {step}… keep the scene still.", $"ثبت {step}… صحنه را ثابت نگه دارید."));
+            var result = await new AbTestRunner(CreateBenchmarkEngine()).RunAsync(processName, duration, runs, snapshot,
+                async ct => session ??= await _sessions.StartAsync(profile, snapshot, null, _ => Task.FromResult(game), gameAlreadyRunning: true, ct)
+                    ?? throw new InvalidOperationException(T("The background agent is optimizing this game; pause it from the tray icon first.", "عامل پس‌زمینه در حال بهینه‌سازی این بازی است؛ ابتدا آن را از آیکن کنار ساعت متوقف کنید.")),
+                async _ => { if (session is not null) { await session.EndAsync(); session = null; } }, progress);
+            foreach (var capture in result.Baseline.Concat(result.Optimized).OrderBy(x => x.CapturedAt)) _benchmarkHistory.Insert(0, capture);
+            await SaveBenchmarkHistoryAsync();
+            RefreshBenchmarkDisplay();
+            var c = result.Comparison;
+            string Metric(string label, MetricChange? change) => change is null ? string.Empty
+                : $"\n{label}: {change.DeltaPercent:+0.0;-0.0;0}%  [95% CI {change.CiLowPercent:+0.0;-0.0;0}% … {change.CiHighPercent:+0.0;-0.0;0}%]";
+            AbResultText.Text = T($"{processName}: {c.BeforeRuns} baseline vs {c.AfterRuns} optimized runs", $"{processName}: {c.BeforeRuns} اجرای پایه در برابر {c.AfterRuns} اجرای بهینه")
+                + Metric(T("Average FPS", "میانگین FPS"), c.AverageFps) + Metric(T("1% low", "یک درصد پایین"), c.OnePercentLowFps) + "\n" + c.Verdict switch
+                {
+                    BenchmarkVerdict.Improvement => T("IMPROVEMENT — keep these session boosts for this game.", "بهبود واقعی — این بوست‌ها را برای این بازی نگه دارید."),
+                    BenchmarkVerdict.Regression => T("REGRESSION — turn the session boosts off for this game.", "افت کارایی — بوست‌های نشست را برای این بازی خاموش کنید."),
+                    BenchmarkVerdict.NoSignificantChange => T("No significant change — the game is GPU-bound or already optimal.", "تفاوت معناداری نیست — بازی به GPU وابسته است یا از قبل بهینه است."),
+                    _ => T("Not comparable — " + c.Reason, "قابل مقایسه نیست — " + c.Reason)
+                };
+        });
+    }
+
+    private void StartAgent_Click(object sender, RoutedEventArgs e)
+    {
+        if (!AgentAutostart.TryStart(AgentAutostart.DefaultAgentPath)) MessageBox.Show(T("ProSyS.Agent.exe is missing from this build.", "فایل ProSyS.Agent.exe در این نسخه وجود ندارد."), "ProSyS");
+        RefreshAgentStatus();
+    }
+
+    private void AgentStartup_Click(object sender, RoutedEventArgs e)
+    {
+        AgentAutostart.Set(AgentAutostart.DefaultAgentPath, AgentStartupCheck.IsChecked == true);
+        RefreshAgentStatus();
+    }
+
+    private async void RefreshAgentStatus()
+    {
+        await Task.Delay(600);
+        AgentStartupCheck.IsChecked = AgentAutostart.IsEnabled(AgentAutostart.DefaultAgentPath);
+        AgentStatusText.Text = AgentAutostart.IsRunning() ? T("● Agent is running in the system tray", "● عامل در سینی سیستم فعال است") : T("○ Agent is not running", "○ عامل فعال نیست");
     }
 
     private static string? TryGetExecutablePath(Process? process)
@@ -594,17 +642,9 @@ public partial class MainWindow : Window
         if (!_activeGameSessions.Remove(session)) return;
         try
         {
-            var cpuRestored = session.Cpu?.TryRestore() ?? true;
-            if (session.BackupDirectory is null)
-            {
-                GameSessionStatusText.Text = T($"Game session ended. CPU policy restored: {cpuRestored}.", $"نشست بازی پایان یافت؛ سیاست پردازنده بازیابی شد: {(cpuRestored ? "بله" : "خیر")}.");
-            }
-            else
-            {
-                var rollback = await Engine().RollbackAsync(session.BackupDirectory, _rollbackTweaks, default, TweakCatalog.ResolveDynamic);
-                var prefix = gameExited ? T("Game exited.", "بازی بسته شد.") : T("ProSyS is closing.", "ProSyS در حال بسته‌شدن است.");
-                GameSessionStatusText.Text = prefix + " " + T($"Original state restored: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}; CPU policy restored: {cpuRestored}.", $"وضعیت اصلی بازگردانده شد: {rollback.Results.Count(x => x.Success)}/{rollback.Results.Count}؛ سیاست پردازنده بازیابی شد: {(cpuRestored ? "بله" : "خیر")}.");
-            }
+            var outcomes = await session.EndAsync();
+            var prefix = gameExited ? T("Game exited. Restored:", "بازی بسته شد. بازگردانی:") : T("ProSyS is closing. Restored:", "ProSyS در حال بسته‌شدن است. بازگردانی:");
+            GameSessionStatusText.Text = prefix + "\n" + string.Join("\n", outcomes.Select(FormatOutcome).DefaultIfEmpty(T("Nothing needed restoring.", "چیزی برای بازگردانی نبود.")));
         }
         catch (Exception ex)
         {
@@ -629,8 +669,6 @@ public partial class MainWindow : Window
         _closingAfterRestore = true;
         Close();
     }
-
-    private sealed record ActiveGameSession(Process Game, string? BackupDirectory, CpuOptimizationSession? Cpu);
 
     private void ShowOverlay_Click(object sender, RoutedEventArgs e) => ShowOverlay();
     private void HideOverlay_Click(object sender, RoutedEventArgs e) => HideOverlay();
@@ -695,8 +733,14 @@ public partial class MainWindow : Window
     private string TranslateClassification(string value) => _persian ? value switch { "System critical" => "حیاتی سیستم", "Security / anti-cheat" => "امنیتی / ضدتقلب", "Windows / service" => "ویندوز / سرویس", _ => "برنامه کاربر" } : value;
     private void EnableDarkTitleBar()
     {
+        var handle = new WindowInteropHelper(this).Handle;
         var enabled = 1;
-        _ = DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref enabled, sizeof(int));
+        _ = DwmSetWindowAttribute(handle, 20, ref enabled, sizeof(int));
+        // Caption matches the window background so the title bar blends into the dark theme (Windows 11; ignored on older builds). COLORREF is 0x00BBGGRR.
+        var caption = 0x000A0707;
+        var text = 0x00FFFFFF;
+        _ = DwmSetWindowAttribute(handle, 35, ref caption, sizeof(int));
+        _ = DwmSetWindowAttribute(handle, 36, ref text, sizeof(int));
     }
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 

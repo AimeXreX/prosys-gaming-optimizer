@@ -1,3 +1,21 @@
+## تازه‌های نسخه ۱.۴ / What's new in 1.4
+
+**فارسی**
+- **عامل پس‌زمینه:** کنار ساعت ویندوز اجرا می‌شود، بازی را خودکار تشخیص می‌دهد، بهینه‌سازی‌ها را اعمال می‌کند و بعد از بستن بازی همه‌چیز را برمی‌گرداند. حتی وقتی پنجره‌ی برنامه بسته است کار می‌کند.
+- **محدودسازی برنامه‌های پس‌زمینه در زمان بازی:** مرورگرها، همگام‌سازها و لانچرها حالت EcoQoS می‌گیرند. چت صوتی، ابزارهای ضبط و برنامه‌های امنیتی هرگز محدود نمی‌شوند.
+- **اولویت هسته‌های قدرتمند** در پردازنده‌های هیبریدی Intel. این گزینه اختیاری است.
+- **آزمون خودکار A/B:** فقط بهبودی را گزارش می‌کند که از نوسان طبیعی اجراها بزرگ‌تر باشد.
+- **بررسی‌های جدید:** MPO خاموش، یکپارچگی حافظه (VBS) و پردازنده‌ی هیبریدی.
+- **لوگوی جدید ProSyS.**
+
+**English**
+- **Background agent:** runs in the system tray, detects games, optimizes them and restores everything when they close, even with the control center closed.
+- **Background EcoQoS while playing** for browsers, sync clients and launchers. Voice chat, recording tools and security software are never touched.
+- **Prefer performance cores** on hybrid Intel CPUs (opt-in).
+- **Automatic A/B test:** reports an improvement only when it is larger than run-to-run noise.
+- **New advisor checks:** MPO disabled, Memory Integrity (VBS), hybrid CPU.
+- **New ProSyS logo.**
+
 ## دانلود و نصب / Download and install
 
 **فارسی**

@@ -99,7 +99,8 @@ public sealed record PerformanceAdvice(string Id, AdviceSeverity Severity, strin
 
 public enum OptimizationProfileKind { Safe, Balanced, Competitive, Experimental }
 public sealed record GameProfile(Guid Id, string Name, string GameProcess, string? ExecutablePath, OptimizationProfileKind Profile,
-    IReadOnlyList<string> TweakIds, bool RestoreOnExit, bool OverlayEnabled, DateTimeOffset UpdatedAt, bool CpuPriorityEnabled = false, bool HighPerformanceGpu = false);
+    IReadOnlyList<string> TweakIds, bool RestoreOnExit, bool OverlayEnabled, DateTimeOffset UpdatedAt, bool CpuPriorityEnabled = false, bool HighPerformanceGpu = false,
+    bool ThrottleBackground = false, bool PreferPerformanceCores = false);
 
 public interface ITweak
 {

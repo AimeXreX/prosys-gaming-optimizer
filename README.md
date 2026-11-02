@@ -1,6 +1,19 @@
-# ProSyS Gaming Optimizer 1.0
+<p align="center"><img src="docs/assets/prosys-logo.png" alt="ProSyS logo" width="160"></p>
+
+# ProSyS Gaming Optimizer
 
 ProSyS is a local-first Windows 11 gaming diagnostic and optimization application. Its safety model is **measure → plan → back up → change → verify → restore**. It does not weaken Windows security, modify firmware or inject code into games.
+
+## Automatic game optimization (1.4)
+
+`ProSyS.Agent.exe` runs in the system tray and works even when the control center is closed:
+
+1. It detects a game, either by its saved profile or, for games without a profile, by finding the game in a Steam, Epic, Xbox, EA, Riot, Ubisoft or GOG library.
+2. It applies the profile's verified settings. Games without a profile get only the high-performance power plan.
+3. It raises the game to Above normal priority, puts allowlisted browsers, sync clients and launchers into EcoQoS, and can optionally steer the game to P-cores on hybrid CPUs.
+4. It restores every change when the game exits. If the PC crashes mid-session, it restores them on the next start.
+
+To prove the effect, use **Benchmark & A/B › Run A/B test**. It alternates baseline and optimized PresentMon captures (A-B, B-A, …) and reports an improvement only when the Welch 95% confidence interval excludes zero.
 
 ## MVP features
 

@@ -17,13 +17,34 @@ public static class PerformanceAdvisor
     {
         var onBattery = OperatingSystem.IsWindows() && GetSystemPowerStatus(out var power) && power.ACLineStatus == 0;
         var refresh = OperatingSystem.IsWindows() ? TweakCatalog.CreateTweaks().OfType<DisplayRefreshTweak>().First().DetectAsync().GetAwaiter().GetResult() : null;
-        return Evaluate(machine, ReadMemoryModules(), onBattery, ReadHardwareGpuScheduling(), refresh);
+        var performanceThreads = OperatingSystem.IsWindows() ? GameSession.PerformanceCoreLever.SelectPerformanceCpuSets(GameSession.SessionNative.GetCpuSets()).Length : 0;
+        return Evaluate(machine, ReadMemoryModules(), onBattery, ReadHardwareGpuScheduling(), refresh, ReadMultiplaneOverlayDisabled(), performanceThreads);
     }
 
     /// <summary>The decision logic, separated from Windows data collection so it can be tested anywhere.</summary>
-    public static IReadOnlyList<PerformanceAdvice> Evaluate(MachineSnapshot machine, IReadOnlyList<MemoryModule> memory, bool onBattery, int? gpuSchedulingMode, DetectionResult? refresh)
+    /// <param name="performanceCoreThreads">Logical processors on the fastest core class of a hybrid CPU; 0 when the CPU is not hybrid.</param>
+    public static IReadOnlyList<PerformanceAdvice> Evaluate(MachineSnapshot machine, IReadOnlyList<MemoryModule> memory, bool onBattery, int? gpuSchedulingMode, DetectionResult? refresh,
+        bool multiplaneOverlayDisabled = false, int performanceCoreThreads = 0)
     {
         var advice = new List<PerformanceAdvice>();
+
+        if (multiplaneOverlayDisabled)
+            advice.Add(new("mpo-disabled", AdviceSeverity.Suggestion, "Multiplane overlay (MPO) is disabled",
+                "A legacy flicker workaround (OverlayTestMode = 5) turned MPO off. That adds latency and power use in borderless games. Remove the workaround only if the flicker no longer happens on your current GPU driver.",
+                "Multiplane Overlay (MPO) خاموش شده است",
+                "یک ترفند قدیمی برای رفع پرپر زدن تصویر (OverlayTestMode = 5) MPO را خاموش کرده است. این کار در بازی‌های Borderless تأخیر و مصرف برق را بالا می‌برد. فقط اگر با درایور فعلی مشکل پرپر زدن ندارید آن را حذف کنید."));
+
+        if (machine.Insights?.Gaming.MemoryIntegrityEnabled == true)
+            advice.Add(new("memory-integrity", AdviceSeverity.Info, "Memory Integrity (VBS) is on",
+                "Microsoft documents a measurable performance cost in some games. It is a real security feature and some anti-cheats (Vanguard, FACEIT) require it, so ProSyS never changes it.",
+                "یکپارچگی حافظه (VBS) روشن است",
+                "مایکروسافت هزینه کارایی قابل‌اندازه‌گیری در برخی بازی‌ها را تأیید کرده است. این یک قابلیت امنیتی واقعی است و برخی ضدتقلب‌ها (Vanguard و FACEIT) به آن نیاز دارند؛ بنابراین ProSyS هرگز آن را تغییر نمی‌دهد."));
+
+        if (performanceCoreThreads > 0)
+            advice.Add(new("hybrid-cpu", AdviceSeverity.Info, $"Hybrid CPU: {performanceCoreThreads} performance-core threads",
+                "Try \"Prefer performance cores\" in a game profile and confirm the gain with the automatic A/B test; some heavily threaded games prefer all cores.",
+                $"پردازنده هیبریدی: {performanceCoreThreads} رشته روی هسته‌های قدرتمند",
+                "گزینه «اولویت هسته‌های قدرتمند» را در پروفایل بازی امتحان کنید و نتیجه را با آزمون خودکار A/B بسنجید؛ برخی بازی‌های چندرشته‌ای با همه هسته‌ها بهتر کار می‌کنند."));
 
         if (machine.IsLaptop && onBattery)
             advice.Add(new("on-battery", AdviceSeverity.Important, "Running on battery",
@@ -103,6 +124,18 @@ public static class PerformanceAdvisor
             return key?.GetValue("HwSchMode") as int?;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException) { return null; }
+    }
+
+    /// <summary>OverlayTestMode = 5 is the documented way to turn multiplane overlay off.</summary>
+    private static bool ReadMultiplaneOverlayDisabled()
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\Dwm");
+            return key?.GetValue("OverlayTestMode") is 5;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException) { return false; }
     }
 
     [StructLayout(LayoutKind.Sequential)]
