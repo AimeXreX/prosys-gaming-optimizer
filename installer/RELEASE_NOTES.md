@@ -1,20 +1,16 @@
-## تازه‌های نسخه ۱.۴ / What's new in 1.4
+## چه چیزی جدید است در ۱.۵ / What's new in 1.5
 
 **فارسی**
-- **عامل پس‌زمینه:** کنار ساعت ویندوز اجرا می‌شود، بازی را خودکار تشخیص می‌دهد، بهینه‌سازی‌ها را اعمال می‌کند و بعد از بستن بازی همه‌چیز را برمی‌گرداند. حتی وقتی پنجره‌ی برنامه بسته است کار می‌کند.
-- **محدودسازی برنامه‌های پس‌زمینه در زمان بازی:** مرورگرها، همگام‌سازها و لانچرها حالت EcoQoS می‌گیرند. چت صوتی، ابزارهای ضبط و برنامه‌های امنیتی هرگز محدود نمی‌شوند.
-- **اولویت هسته‌های قدرتمند** در پردازنده‌های هیبریدی Intel. این گزینه اختیاری است.
-- **آزمون خودکار A/B:** فقط بهبودی را گزارش می‌کند که از نوسان طبیعی اجراها بزرگ‌تر باشد.
-- **بررسی‌های جدید:** MPO خاموش، یکپارچگی حافظه (VBS) و پردازنده‌ی هیبریدی.
-- **لوگوی جدید ProSyS.**
+- **ظاهر کاملاً جدید:** تم تیره‌ی نئونی با رنگ‌های فیروزه‌ای و بنفش، دکمه‌های درخشان، کارت‌های گرد، پنل اصلی جدید در داشبورد و سوییچ‌های روشن/خاموش به‌جای چک‌باکس.
+- **انتخاب همه:** در صفحه‌ی مرکز بهینه‌سازی می‌توانید همه‌ی بهینه‌سازی‌های قابل اعمال را با یک کلیک انتخاب یا انتخاب را پاک کنید. شمارنده‌ی «N از M مورد انتخاب شده» هم نمایش داده می‌شود.
+- فیلد جستجو، منوی کشویی، لیست‌ها و جدول‌ها هم با سبک جدید هماهنگ شدند و اورلی بازی از همان رنگ فیروزه‌ای استفاده می‌کند.
+- هیچ رفتار یا مسیر پشتیبان‌گیری/بازگردانی تغییر نکرده است.
 
 **English**
-- **Background agent:** runs in the system tray, detects games, optimizes them and restores everything when they close, even with the control center closed.
-- **Background EcoQoS while playing** for browsers, sync clients and launchers. Voice chat, recording tools and security software are never touched.
-- **Prefer performance cores** on hybrid Intel CPUs (opt-in).
-- **Automatic A/B test:** reports an improvement only when it is larger than run-to-run noise.
-- **New advisor checks:** MPO disabled, Memory Integrity (VBS), hybrid CPU.
-- **New ProSyS logo.**
+- **Brand-new look:** deeper dark theme with neon teal and violet accents, glowing buttons, rounded cards, a new dashboard hero panel and on/off toggle switches instead of plain checkboxes.
+- **Select all:** the Recommendations page can now select every available optimization (or clear the selection) in one click, with a live "N of M selected" counter. It respects search and filters and skips incompatible or already-optimized items.
+- Search box, drop-downs, lists and tables were restyled to match, and the external overlay uses the same teal accent.
+- No behaviour changes: every capability, backup and rollback path is unchanged.
 
 ## دانلود و نصب / Download and install
 

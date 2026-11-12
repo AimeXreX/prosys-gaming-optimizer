@@ -8,9 +8,9 @@ public sealed partial class UiLocalization
     private static readonly IReadOnlyDictionary<string, string> Persian = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["Dashboard"] = "داشبورد", ["Live system readiness and safe optimization"] = "وضعیت زنده سیستم و بهینه‌سازی امن",
-        ["▰   DASHBOARD"] = "▰   داشبورد", ["◉   SYSTEM SCAN"] = "◉   اسکن کامل سیستم", ["✦   RECOMMENDATIONS"] = "✦   مرکز بهینه‌سازی",
+        ["▰   DASHBOARD"] = "▰   داشبورد", ["◈   GAME PROFILES"] = "◈   پروفایل بازی‌ها", ["Select all"] = "انتخاب همه", ["Clear selection"] = "پاک‌کردن انتخاب", ["Select all available recommendations"] = "انتخاب همه‌ی بهینه‌سازی‌های قابل اعمال", ["◉   SYSTEM SCAN"] = "◉   اسکن کامل سیستم", ["✦   RECOMMENDATIONS"] = "✦   مرکز بهینه‌سازی",
         ["⌁   DIAGNOSTICS"] = "⌁   پایش و عیب‌یابی", ["↶   HISTORY & BACKUPS"] = "↶   تاریخچه و بازیابی", ["⚙   SETTINGS"] = "⚙   تنظیمات",
-        ["◫   BENCHMARK & A/B"] = "◫   بنچمارک و مقایسه", ["🎮   GAME PROFILES"] = "🎮   پروفایل بازی‌ها", ["▣   OVERLAY"] = "▣   نمایشگر زنده",
+        ["◫   BENCHMARK & A/B"] = "◫   بنچمارک و مقایسه", ["▣   OVERLAY"] = "▣   نمایشگر زنده",
         ["PRESENTMON BENCHMARK"] = "بنچمارک واقعی PRESENTMON", ["Capture real frame times, FPS lows and variance without injecting into the game."] = "ثبت واقعی زمان فریم، افت‌های FPS و نوسان بدون تزریق به بازی.",
         ["CAPTURE SETTINGS"] = "تنظیمات ثبت", ["Game process name"] = "نام پردازش بازی", ["Duration (seconds)"] = "مدت (ثانیه)", ["Checking PresentMon trust…"] = "در حال بررسی اعتبار PresentMon…", ["START CAPTURE"] = "شروع ثبت",
         ["LATEST RESULT"] = "آخرین نتیجه", ["No benchmark has been captured yet."] = "هنوز بنچمارکی ثبت نشده است.", ["COMPARE LAST TWO RUNS"] = "مقایسه دو اجرای آخر", ["BENCHMARK HISTORY"] = "تاریخچه بنچمارک",

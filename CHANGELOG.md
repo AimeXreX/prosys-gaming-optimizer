@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0
+
+A new neon gaming look and a faster way to choose optimizations.
+
+- Added: **Select all / Clear selection** on the Recommendations page, with a live "N of M selected" counter and a three-state checkbox. Select all only touches the optimizations that are compatible, not yet optimized and currently visible (respecting search and filters).
+- Changed: **Complete visual refresh.** Neon teal and violet accents on a deeper dark theme, glowing primary buttons, rounded cards with soft gradients, a dashboard hero panel, and on/off toggle switches in place of plain checkboxes.
+- Changed: search box, drop-down lists, list rows, tables and scroll bars restyled to match; fixed the light-grey drop-down on the Recommendations page.
+- Changed: the external overlay now uses the same teal accent.
+- No behaviour changes: every capability, backup and rollback path is unchanged.
+
 ## 1.4.0
 
 The game sessions now run on their own, and every boost is either measured or restored.

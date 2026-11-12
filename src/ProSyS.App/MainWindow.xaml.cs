@@ -56,7 +56,6 @@ public partial class MainWindow : Window
         BackupsList.ItemsSource = _backups;
         GameProfilesList.ItemsSource = _gameProfiles;
         BenchmarkHistoryList.ItemsSource = _benchmarkHistory;
-        RecommendationFilter.Foreground = new SolidColorBrush(Color.FromRgb(32, 28, 42));
         if (ProfileOverlayCheck.Parent is Panel profileOptions)
         {
             profileOptions.Children.Insert(profileOptions.Children.IndexOf(ProfileOverlayCheck), _profileGpuCheck);
@@ -207,8 +206,8 @@ public partial class MainWindow : Window
         PageTitle.Text = (_persian ? persianTitles : englishTitles)[index];
         PageCaption.Text = _persian ? "داده‌های محلی، شفاف و قابل بازگشت" : englishCaptions[index];
         var buttons = new[] { DashboardNav, ScanNav, RecommendationsNav, DiagnosticsNav, BackupsNav, SettingsNav, BenchmarkNav, GameProfilesNav, OverlayNav };
-        foreach (var button in buttons) { button.Background = Brushes.Transparent; button.Foreground = new SolidColorBrush(Color.FromRgb(170, 184, 204)); }
-        buttons[index].Background = new SolidColorBrush(Color.FromRgb(20, 40, 58));
+        foreach (var button in buttons) { button.Background = Brushes.Transparent; button.Foreground = new SolidColorBrush(Color.FromRgb(138, 147, 168)); }
+        buttons[index].Background = new SolidColorBrush(Color.FromRgb(16, 43, 42));
         buttons[index].Foreground = (Brush)FindResource("Accent");
         if (index == 4) RefreshHistory();
     }
@@ -229,6 +228,7 @@ public partial class MainWindow : Window
             (search.Length == 0 || x.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase) || x.Summary.Contains(search, StringComparison.CurrentCultureIgnoreCase)) &&
             (category is not null ? x.Metadata.Category.Equals(category, StringComparison.CurrentCultureIgnoreCase) :
             filter == 0 || filter == 1 && x.IsSelected || filter == 2 && x.CanSelect || filter == 3 && !x.CanSelect)).ToArray();
+        UpdateSelectionSummary();
     }
 
     private void RecommendationsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -243,8 +243,36 @@ public partial class MainWindow : Window
         DetailCurrent.Text = _persian ? $"وضعیت فعلی: {item.Plan.Current.Value ?? "تنظیم نشده"} • {item.Compatibility}" : $"Current: {item.Plan.Current.Value ?? "not configured"} • {item.Compatibility}";
     }
 
+    private IEnumerable<RecommendationViewModel> VisibleRecommendations() => RecommendationsList.ItemsSource as IEnumerable<RecommendationViewModel> ?? _recommendations;
+
+    private void SelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        var selectable = VisibleRecommendations().Where(x => x.CanSelect).ToList();
+        var target = selectable.Count > 0 && !selectable.All(x => x.IsSelected);
+        foreach (var row in selectable) row.IsSelected = target;
+        UpdateSelectionSummary();
+    }
+
+    private void ClearSelection_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var row in _recommendations.Where(x => x.IsSelected).ToList()) row.IsSelected = false;
+        if (RecommendationFilter.SelectedIndex == 1) ApplyRecommendationFilter(); else UpdateSelectionSummary();
+    }
+
+    private void UpdateSelectionSummary()
+    {
+        if (SelectAllCheck is null || SelectionCountText is null || RecommendationsList is null) return;
+        var selectable = VisibleRecommendations().Where(x => x.CanSelect).ToList();
+        var selected = selectable.Count(x => x.IsSelected);
+        SelectAllCheck.IsEnabled = selectable.Count > 0;
+        SelectAllCheck.IsChecked = selected == 0 ? false : selected == selectable.Count ? true : (bool?)null;
+        ClearSelectionButton.IsEnabled = _recommendations.Any(x => x.IsSelected);
+        SelectionCountText.Text = T($"{selected} of {selectable.Count} selected", $"{selected} از {selectable.Count} مورد انتخاب شده");
+    }
+
     private void UpdatePlanFromSelection()
     {
+        UpdateSelectionSummary();
         if (_plan is null) return;
         var selected = _recommendations.Where(x => x.IsSelected).Select(x => x.Plan.TweakId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _plan = new PlanFactory().Select(_plan, selected);
@@ -359,6 +387,7 @@ public partial class MainWindow : Window
         for (var i = 0; i < ProcessesGrid.Columns.Count; i++) ProcessesGrid.Columns[i].Header = processHeaders[i];
         SelectPage(MainTabs.SelectedIndex);
         if (_plan is not null) RenderRecommendations(_plan);
+        UpdateSelectionSummary();
         if (_snapshot is not null) RenderSnapshot(_snapshot);
         RefreshBenchmarkDisplay();
     }
